@@ -1,0 +1,7 @@
+jarvis-bielenki.duckdns.org {
+    encode gzip
+    request_body {
+        max_size 128KB
+    }
+    reverse_proxy jarvis:8000
+}
