@@ -1,0 +1,14 @@
+services:
+  jarvis:
+    build: .
+    restart: unless-stopped
+    environment:
+      JARVIS_DB: /data/jarvis.sqlite3
+      JARVIS_USER_KEY: ${JARVIS_USER_KEY:?required}
+      JARVIS_WORKER_KEY: ${JARVIS_WORKER_KEY:?required}
+    volumes:
+      - jarvis_data:/data
+    ports:
+      - "127.0.0.1:8000:8000"
+volumes:
+  jarvis_data:
