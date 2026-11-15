@@ -1,0 +1,12 @@
+.env
+.env.*
+!.env.example
+!.env.vps.example
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+*.sqlite3*
+node_modules/
+.next/
+.vercel/
