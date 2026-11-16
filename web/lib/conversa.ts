@@ -30,6 +30,7 @@ export type Intencao =
   | { tipo: "delegar"; categorias: Categoria[] | null; tema: string; atrasadas: boolean }
   | { tipo: "anotar"; titulo: string; categoria: Categoria; prazo: "hoje" | "amanha" | null }
   | { tipo: "plano" }
+  | { tipo: "saudacao" }
   | { tipo: "ia" };
 
 // Ações (mudam algo) sempre passam por confirmação antes de executar.
@@ -39,6 +40,8 @@ const ANOTAR = /^(?:jarvis[,\s]+)?(?:anote|anota|anotar|lembre-me de|lembre-me|m
 
 export function intencao(texto: string): Intencao {
   const t = sem(texto);
+  // Só o chamado ("Jarvis", "oi", "tudo bem?"): responde na hora, sem acionar a IA.
+  if (/^\s*(?:(?:oi|ola|e ai|ei|hey|alo|tudo bem|como vai|jarvis|ta ai|esta ai|voce esta ai|pode falar)[\s,.!?]*)+$/.test(t)) return { tipo: "saudacao" };
   if (/\b(plano do dia|plano de hoje|planej\w* (o |meu )?dia|organiz\w* (o |meu )?dia|monte (o|um) plano)/.test(t)) return { tipo: "plano" };
   const an = t.replace(/^\s+/, "").match(ANOTAR);
   if (an) {
