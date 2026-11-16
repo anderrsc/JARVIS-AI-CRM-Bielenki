@@ -51,6 +51,7 @@ export default function Jarvis({ nome }: { nome: string }) {
   const [maosLivres, setMaosLivres] = useState(false);
   const [semMic, setSemMic] = useState(false);
   const [saud, setSaud] = useState("Olá");
+  const [aviso, setAviso] = useState("");
   const nucleo = useRef<HTMLButtonElement>(null);
   const fim = useRef<HTMLDivElement>(null);
   const rec = useRef<Rec | null>(null);
@@ -242,12 +243,25 @@ export default function Jarvis({ nome }: { nome: string }) {
       }
       setParcial(final + tmp);
     };
-    r.onerror = (e) => { if (e.error === "not-allowed") setSemMic(true); };
+    let falha = "";
+    r.onerror = (e) => {
+      const AVISOS: Record<string, string> = {
+        "not-allowed": "Microfone bloqueado. Libere o microfone para este site nas configurações do navegador.",
+        "service-not-allowed": "Este navegador não liberou o reconhecimento de voz. Abra pelo Chrome (Android) ou Safari (iPhone), fora do app instalado.",
+        "no-speech": "Não ouvi nada. Toque no núcleo e fale.",
+        "audio-capture": "Nenhum microfone encontrado.",
+        "network": "O reconhecimento de voz precisa de internet.",
+      };
+      falha = AVISOS[e.error] ?? "";
+      if (e.error === "not-allowed" || e.error === "service-not-allowed") setSemMic(true);
+    };
     r.onend = () => {
       rec.current = null;
       pararMic();
       setParcial("");
-      if (final.trim()) responder(final); else setEstado("pronto");
+      if (final.trim()) { setAviso(""); responder(final); return; }
+      setEstado("pronto");
+      setAviso(falha || "Não entendi. Toque no núcleo e fale de novo, ou digite.");
     };
     rec.current = r;
     setEstado("ouvindo");
@@ -271,6 +285,9 @@ export default function Jarvis({ nome }: { nome: string }) {
   useEffect(() => { ouvirRef.current = ouvir; }, [ouvir]);
 
   const tocarNucleo = () => {
+    setAviso("");
+    // iPhone: a voz só toca depois de nascer de um toque.
+    if (voz && estado === "pronto" && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
     if (estado === "ouvindo") { rec.current?.stop(); return; }
     if (estado === "falando") { speechSynthesis.cancel(); setEstado("pronto"); return; }
     if (estado === "pronto") ouvir();
@@ -281,6 +298,7 @@ export default function Jarvis({ nome }: { nome: string }) {
     if (estado === "pensando" || !texto.trim()) return;
     // Destrava a voz no iPhone (precisa nascer de um toque).
     if (voz && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+    setAviso("");
     responder(texto);
     setTexto("");
   };
@@ -306,6 +324,7 @@ export default function Jarvis({ nome }: { nome: string }) {
         <span className="jv-orb" />
       </button>
       <p className="jv-status" aria-live="polite">{parcial || ROTULO[estado]}</p>
+      {aviso && estado === "pronto" && <p className="jv-aviso small" role="alert">{aviso}</p>}
 
       <div className="jv-log" role="log" aria-live="polite">
         {msgs.length === 0 && (
