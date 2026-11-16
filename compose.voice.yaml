@@ -5,14 +5,14 @@ services:
     env_file: .env.vps
     environment:
       JARVIS_VOICE_DEVICE: cpu
-      VOICE_THREADS: "2"
+      VOICE_THREADS: "4"
     volumes:
       - ./voice/model:/app/model:ro
       - ./voice/reference.wav:/app/reference.wav:ro
       - voice_audio:/app/audio-cache
-    mem_limit: 2300m
+    mem_limit: 2800m
     memswap_limit: 4300m
-    cpus: 2
+    cpus: 3.5
     healthcheck:
       test:
         - CMD

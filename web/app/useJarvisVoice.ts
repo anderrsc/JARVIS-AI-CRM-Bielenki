@@ -1,6 +1,7 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { paraFala } from "@/lib/conversa";
+import { speechParts } from "@/lib/voice";
 
 export function useJarvisVoice() {
   const player = useRef<HTMLAudioElement>(null);
@@ -38,35 +39,45 @@ export function useJarvisVoice() {
     stop();
     setError("");
     const id = version.current;
-    const clean = paraFala(text);
-    const cached = urls.current.get(clean);
-    if (cached) { await play(cached, after); return; }
+    const parts = speechParts(paraFala(text));
     const controller = new AbortController();
     request.current = controller;
-    setBusy(true);
-    try {
-      const response = await fetch("/api/voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: clean }), signal: controller.signal });
+    const prepare = async (part: string): Promise<{ url: string } | { error: unknown }> => {
+      try {
+      const cached = urls.current.get(part);
+      if (cached) return { url: cached };
+      const response = await fetch("/api/voice", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: part }), signal: controller.signal });
       if (!response.ok) {
         const data = await response.json().catch(() => null);
         throw new Error(data?.error || "A voz está indisponível. Continue por texto.");
       }
       if (!response.headers.get("content-type")?.startsWith("audio/")) throw new Error("Sua sessão expirou. Entre novamente para ouvir as respostas.");
       const blob = await response.blob();
-      if (id !== version.current) return;
+      if (id !== version.current) return { error: new Error("Interrompido") };
       const url = URL.createObjectURL(blob);
-      urls.current.set(clean, url);
+      urls.current.set(part, url);
       if (urls.current.size > 12) {
         const first = urls.current.keys().next().value!;
         URL.revokeObjectURL(urls.current.get(first)!);
         urls.current.delete(first);
       }
-      setBusy(false);
-      await play(url, after);
-    } catch (e) {
+      return { url };
+      } catch (error) { return { error }; }
+    };
+    const run = async (index: number, prepared?: ReturnType<typeof prepare>) => {
+      setBusy(true);
+      const result = await (prepared ?? prepare(parts[index]));
       if (controller.signal.aborted || id !== version.current) return;
       setBusy(false);
-      setError(e instanceof Error ? e.message : "Não foi possível gerar a voz.");
-    }
+      if ("error" in result) { setError(result.error instanceof Error ? result.error.message : "Não foi possível gerar a voz."); return; }
+      // Only one synthesis request at a time; prepare the next phrase during playback.
+      const next = index + 1 < parts.length ? prepare(parts[index + 1]) : undefined;
+      await play(result.url, () => {
+        if (id !== version.current) return;
+        if (next) void run(index + 1, next); else after?.();
+      });
+    };
+    if (parts.length) await run(0);
   }, [play, stop]);
 
   const preview = useCallback(() => {
