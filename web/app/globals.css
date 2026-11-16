@@ -108,3 +108,4 @@ body:has(main.jv-page) { overscroll-behavior:none; background:#02050a; }
 @media (max-width:480px) { .jv-msg { max-width:94%; font-size:.95rem; } .jv-opts { gap:4px 14px; } }
 @media (max-height:560px) { .jv-core { width:min(30vw,22dvh,160px); } }
 @media (max-width:700px) { .jv-compact .jv-core { width:min(34vw,20dvh,170px); } }
+.jv-aviso { margin:0; color:#ffb547; text-align:center; max-width:520px; }
