@@ -84,6 +84,35 @@ def buscar_pendencias(fetch=None) -> list[dict]:
     return items
 
 
+def _rpc(nome: str):
+    try:
+        return _post(f'/rest/v1/rpc/{nome}', {}, _login())
+    except CrmError as e:
+        if 'respondeu 401' not in str(e):
+            raise
+        _token['value'] = ''  # token expirado/revogado: tenta uma vez de novo
+        return _post(f'/rest/v1/rpc/{nome}', {}, _login())
+
+
+def buscar_lia() -> dict:
+    """Resumo da Lia (atendimento do WhatsApp) pela RPC `lia_status_center`. Só leitura."""
+    if not configurado():
+        raise CrmError('Conector do CRM não configurado')
+    r = _rpc('lia_status_center')
+    if not isinstance(r, dict):
+        raise CrmError('Resposta inesperada do CRM')
+    sugestoes = [s for s in (r.get('sugestoes') or []) if isinstance(s, dict)]
+    return {
+        'ativa': bool(r.get('ativa')),
+        'modo': str(r.get('modo') or 'automatica'),
+        'hoje': {str(k): int(v) for k, v in (r.get('hoje') or {}).items() if isinstance(v, (int, float))},
+        'sugestoes': [{'contato': str(s.get('contato') or 'cliente')[:80], 'texto': str(s.get('texto') or '')[:200],
+                       'link': f"{SITE}/atendimento?c={s.get('conversa')}" if SITE and s.get('conversa') else None} for s in sugestoes[:20]],
+        'aguardando_equipe': int(r.get('aguardando_equipe') or 0),
+        'falhas_24h': [str(f.get('motivo') or '')[:200] for f in (r.get('falhas_24h') or []) if isinstance(f, dict)][:5],
+    }
+
+
 def limpar_cache():
     _cache.update(items=None, ts=0.0)
 

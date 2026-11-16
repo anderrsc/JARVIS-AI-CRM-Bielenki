@@ -1,7 +1,7 @@
 "use server";
 import { requireUser } from "@/lib/auth";
-import { createJob, createPendencia, delegarCrm, delegarPendencia, getHoje, getJob, pedirPlano, JarvisError } from "@/lib/jarvis";
-import { alvosDelegar, intencao, montarPrompt, prazoIso, responderPendencias, TEXTO_MAX, type Turno } from "@/lib/conversa";
+import { createJob, createPendencia, delegarCrm, delegarPendencia, getHoje, getLia, getJob, pedirPlano, JarvisError } from "@/lib/jarvis";
+import { alvosDelegar, intencao, montarPrompt, prazoIso, responderLia, responderPendencias, TEXTO_MAX, type Turno } from "@/lib/conversa";
 import { AGENT_LABEL, CATEGORIA_LABEL } from "@/lib/validate";
 import { isUuid } from "@/lib/validate";
 
@@ -28,6 +28,7 @@ export async function conversar(texto: unknown, historico: unknown): Promise<Res
   try {
     if (it.tipo === "pendencias") return { tipo: "texto", texto: responderPendencias(await getHoje(), it), fonte: "dados" };
     if (it.tipo === "saudacao") return { tipo: "texto", fonte: "dados", texto: "Pois não, senhor. Posso dizer o que temos para hoje, as cobranças ou as instalações, anotar uma tarefa ou delegar pendências." };
+    if (it.tipo === "lia") return { tipo: "texto", texto: responderLia(await getLia()), fonte: "dados" };
     if (it.tipo === "plano") return { tipo: "tarefa", id: (await pedirPlano()).id, agente: AGENT_LABEL.secretario };
     if (it.tipo === "anotar") {
       const quando = it.prazo ? ` com prazo ${it.prazo === "hoje" ? "hoje" : "amanhã"}` : "";

@@ -31,6 +31,7 @@ export type Intencao =
   | { tipo: "anotar"; titulo: string; categoria: Categoria; prazo: "hoje" | "amanha" | null }
   | { tipo: "plano" }
   | { tipo: "saudacao" }
+  | { tipo: "lia" }
   | { tipo: "ia" };
 
 // Ações (mudam algo) sempre passam por confirmação antes de executar.
@@ -53,6 +54,7 @@ export function intencao(texto: string): Intencao {
         prazo: /\bamanha\b/.test(tt) ? "amanha" : /\bhoje\b/.test(tt) ? "hoje" : null };
     }
   }
+  if (/\blia\b|\b(atendimento|whatsapp|zap)\b.{0,30}\b(como|esta|anda|hoje|resumo|situacao)|\b(como|resumo|situacao)\b.{0,30}\b(atendimento|whatsapp)\b/.test(t)) return { tipo: "lia" };
   if (/\b(deleg\w*|encaminh\w*|distribu\w*)\b/.test(t)) {
     const tema = TEMAS.find(([, re]) => re.test(t));
     return { tipo: "delegar", categorias: tema ? tema[0] : null, tema: tema ? tema[2] : "pendências", atrasadas: /atrasad|vencid/.test(t) };
@@ -131,3 +133,23 @@ export function prazoIso(p: "hoje" | "amanha" | null, agora = new Date()): strin
 
 export const SIM = /^(sim|confirm\w*|pode( fazer| seguir| ir)?|ok|okay|isso|manda ver|faca|faça|executa\w*)\b/i;
 export const NAO = /^(nao|não|cancel\w*|para|pare|deixa|esquece)\b/i;
+
+export type LiaLike = { ativa: boolean; modo: string; hoje: Record<string, number>; sugestoes: { contato: string; texto: string }[]; aguardando_equipe: number; falhas_24h: string[] };
+const MODO: Record<string, string> = { assistente: "assistente, só sugere", semiautomatica: "semiautomática", automatica: "automática supervisionada" };
+
+/** Resumo do atendimento da Lia (WhatsApp) com dados reais do CRM. */
+export function responderLia(l: LiaLike, max = 3): string {
+  if (!l.ativa) return "A Lia está pausada no CRM. O atendimento do WhatsApp está só com a equipe.";
+  const n = (k: string) => l.hoje[k] ?? 0;
+  const partes = [`A Lia está ativa, no modo ${MODO[l.modo] ?? l.modo}. Hoje respondeu ${n("respondeu") + n("aprovada")} mensagem(ns)`
+    + (n("sugeriu") ? ` e deixou ${n("sugeriu")} sugestão(ões)` : "") + "."];
+  if (l.sugestoes.length) {
+    partes.push(`${l.sugestoes.length} sugestão(ões) esperando aprovação no Atendimento:`);
+    for (const s of l.sugestoes.slice(0, max)) partes.push(`• ${s.contato}: "${s.texto.slice(0, 80)}"`);
+    if (l.sugestoes.length > max) partes.push(`• e mais ${l.sugestoes.length - max}.`);
+  }
+  if (l.aguardando_equipe) partes.push(`${l.aguardando_equipe} conversa(s) com mensagem nova esperando a equipe.`);
+  if (l.falhas_24h.length) partes.push(`Atenção: ${l.falhas_24h.length} falha(s) da IA nas últimas 24 horas. Última: ${l.falhas_24h[0]}.`);
+  if (!l.sugestoes.length && !l.aguardando_equipe && !l.falhas_24h.length) partes.push("Nada pendente no atendimento.");
+  return partes.join("\n");
+}
