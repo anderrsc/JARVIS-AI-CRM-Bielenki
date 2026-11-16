@@ -15,7 +15,8 @@ export async function submitJob(_: FormState, form: FormData): Promise<FormState
   if (!parsed.ok) return { error: parsed.error };
   let id: string;
   try {
-    id = (await createJob(parsed.agent, parsed.prompt)).id;
+    const empresa = form.get("empresa");
+    id = (await createJob(parsed.agent, parsed.prompt, typeof empresa === "string" && /^[a-z0-9_-]{1,40}$/.test(empresa) ? empresa : null)).id;
   } catch (e) {
     return { error: e instanceof JarvisError ? e.message : "Erro inesperado." };
   }

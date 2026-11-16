@@ -4,7 +4,7 @@ from datetime import date
 from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
-import office, crm
+import office, crm, knowledge
 
 DB = os.getenv('JARVIS_DB', '/data/jarvis.sqlite3')
 USER_KEY = os.getenv('JARVIS_USER_KEY', '')
@@ -26,6 +26,10 @@ def connection():
         conn.execute(office.SCHEMA_EMPRESAS)
         conn.execute(office.SCHEMA_EVENTOS)
         conn.execute(office.SCHEMA)
+        conn.execute(knowledge.SCHEMA)
+        cols = {r[1] for r in conn.execute('PRAGMA table_info(jobs)')}
+        if 'empresa' not in cols: conn.execute('ALTER TABLE jobs ADD COLUMN empresa TEXT')
+        if 'contexto' not in cols: conn.execute('ALTER TABLE jobs ADD COLUMN contexto TEXT')
         conn.execute('CREATE TABLE IF NOT EXISTS crm_delegacoes (item_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, ts INTEGER NOT NULL)')
         conn.execute('CREATE INDEX IF NOT EXISTS pend_empresa_status ON pendencias(empresa,status)')
         conn.executemany('INSERT OR IGNORE INTO empresas(chave,nome) VALUES(?,?)', office.EMPRESAS.items())
@@ -50,6 +54,7 @@ AgentKey = Literal[tuple(office.AGENTES)]
 class NewJob(BaseModel):
     agent: AgentKey = 'jarvis'
     prompt: str = Field(min_length=3, max_length=6000)
+    empresa: str | None = Field(None, max_length=40)
 
 class Result(BaseModel):
     worker_id: str = Field(min_length=1, max_length=100)
@@ -60,10 +65,18 @@ class Result(BaseModel):
 def health():
     return {'status': 'ok'}
 
-def enqueue(db, agent: str, prompt: str) -> str:
+def regras_confirmadas(db, empresas: list[str]) -> dict:
+    nomes = empresas_db(db)
+    return {e: (nomes.get(e, e), [dict(r) for r in db.execute(
+        "SELECT assunto,texto,updated_at FROM conhecimento WHERE empresa=? AND estado='confirmada'", (e,))])
+        for e in empresas}
+
+def enqueue(db, agent: str, prompt: str, empresas: list[str] | None = None, categoria: str | None = None) -> str:
+    """Cria a tarefa. O contexto (regras confirmadas) é fotografado agora, só das empresas da tarefa."""
     jid = str(uuid.uuid4())
-    db.execute('INSERT INTO jobs(id,agent,prompt,status,created_at) VALUES(?,?,?,?,?)',
-               (jid,agent,prompt,'queued',int(time.time())))
+    ctx = knowledge.contexto(regras_confirmadas(db, empresas), categoria) if empresas else ''
+    db.execute('INSERT INTO jobs(id,agent,prompt,status,created_at,empresa,contexto) VALUES(?,?,?,?,?,?,?)',
+               (jid,agent,prompt,'queued',int(time.time()),','.join(empresas or []) or None,ctx or None))
     return jid
 
 def log_event(db, tipo: str, empresa: str | None = None, recurso: str | None = None, detalhe: str | None = None, ator: str = 'proprietario'):
@@ -73,7 +86,8 @@ def log_event(db, tipo: str, empresa: str | None = None, recurso: str | None = N
 @app.post('/jobs', status_code=201, dependencies=[Depends(user_auth)])
 def submit(job: NewJob):
     with connection() as db:
-        jid = enqueue(db, job.agent, job.prompt)
+        if job.empresa and job.empresa not in empresas_db(db): raise HTTPException(422, 'Empresa inválida')
+        jid = enqueue(db, job.agent, job.prompt, [job.empresa] if job.empresa else None)
     return {'id':jid, 'status':'queued'}
 
 @app.get('/jobs', dependencies=[Depends(user_auth)])
@@ -84,7 +98,7 @@ def list_jobs():
 @app.get('/jobs/{jid}', dependencies=[Depends(user_auth)])
 def get_job(jid: str):
     with connection() as db:
-        r=db.execute('SELECT id,agent,status,result,created_at,attempts FROM jobs WHERE id=?',(jid,)).fetchone()
+        r=db.execute('SELECT id,agent,status,result,created_at,attempts,empresa,contexto FROM jobs WHERE id=?',(jid,)).fetchone()
     if not r: raise HTTPException(404,'Não encontrado')
     return dict(r)
 
@@ -97,10 +111,13 @@ def claim(worker_id: str = 'home'):
         # Retentativa limitada; evita ciclos infinitos de tarefas que falharam
         db.execute("UPDATE jobs SET status='queued', worker_id=NULL WHERE status='running' AND lease_until<? AND attempts<3",(now,))
         db.execute("UPDATE jobs SET status='failed', result='Worker expirou 3 vezes' WHERE status='running' AND lease_until<? AND attempts>=3",(now,))
-        r=db.execute("SELECT id,agent,prompt FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
+        r=db.execute("SELECT id,agent,prompt,contexto FROM jobs WHERE status='queued' ORDER BY created_at LIMIT 1").fetchone()
         if not r: return {'job':None}
         db.execute("UPDATE jobs SET status='running',worker_id=?,lease_until=?,attempts=attempts+1 WHERE id=?",(worker_id,now+LEASE_SECONDS,r['id']))
-        return {'job':dict(r, system=office.system_prompt(r['agent']))}
+        job = {'id': r['id'], 'agent': r['agent'], 'prompt': r['prompt'], 'system': office.system_prompt(r['agent'])}
+        if r['contexto']:
+            job['system'] += '\n\n' + r['contexto']
+        return {'job': job}
 
 @app.post('/worker/jobs/{jid}/complete', dependencies=[Depends(worker_auth)])
 def complete(jid: str, payload: Result):
@@ -202,7 +219,7 @@ def delegar(pid: str):
             f"Cliente: {p['cliente']}" if p['cliente'] else '', f"Prazo: {p['prazo']} ({motivo})" if p['prazo'] else '',
             f"Detalhes: {p['detalhe']}" if p['detalhe'] else '',
             'Prepare as próximas ações para resolver esta pendência e o que depende de aprovação do proprietário.') if x)
-        jid = enqueue(db, p['agente'], prompt)
+        jid = enqueue(db, p['agente'], prompt, [p['empresa']], p['categoria'])
         db.execute("UPDATE pendencias SET status='delegada',job_id=?,updated_at=? WHERE id=?", (jid, int(time.time()), pid))
         log_event(db, 'pendencia.delegada', p['empresa'], pid, f"{p['agente']}:{jid}")
     return {'job_id': jid, 'agente': p['agente']}
@@ -249,7 +266,7 @@ def delegar_crm(d: DelegarCrm):
             f"Prazo: {p['prazo']} ({motivo})" if p['prazo'] else '',
             'Prepare as próximas ações para resolver esta pendência e o que depende de aprovação do proprietário. '
             'Mensagens a clientes devem ser rascunhos.') if x)
-        jid = enqueue(db, p['agente'], prompt)
+        jid = enqueue(db, p['agente'], prompt, [crm.EMPRESA], p['categoria'])
         db.execute('INSERT OR REPLACE INTO crm_delegacoes(item_id,job_id,ts) VALUES(?,?,?)', (d.id, jid, int(time.time())))
         log_event(db, 'crm.delegada', crm.EMPRESA, d.id, f"{p['agente']}:{jid}")
     return {'job_id': jid, 'agente': p['agente']}
@@ -267,6 +284,86 @@ def plano_do_dia():
         b = _briefing(db)
         if not any(e['itens'] for e in b['empresas']):
             raise HTTPException(409, 'Nenhuma pendência cadastrada para planejar')
-        jid = enqueue(db, 'secretario', office.briefing_texto(b)[:6000])
+        jid = enqueue(db, 'secretario', office.briefing_texto(b)[:6000], [e['empresa'] for e in b['empresas'] if e['itens']])
         log_event(db, 'plano.solicitado', None, jid)
     return {'id': jid, 'status': 'queued'}
+
+
+# ---------- Central de Conhecimento Empresarial ----------
+
+class NovaRegra(BaseModel):
+    empresa: str = Field(min_length=1, max_length=40)
+    assunto: Literal[tuple(knowledge.ASSUNTOS)]
+    texto: str = Field(min_length=5, max_length=1000)
+    estado: Literal['provisoria', 'hipotese', 'sugestao'] = 'provisoria'
+    fonte: str | None = Field(None, max_length=200)
+
+class EditaRegra(BaseModel):
+    texto: str = Field(min_length=5, max_length=1000)
+    fonte: str | None = Field(None, max_length=200)
+
+def get_regra(db, rid: str) -> dict:
+    r = db.execute('SELECT * FROM conhecimento WHERE id=?', (rid,)).fetchone()
+    if not r: raise HTTPException(404, 'Não encontrado')
+    return dict(r)
+
+def regras_ativas(db, empresa: str) -> list[dict]:
+    return [dict(r) for r in db.execute(
+        f"SELECT * FROM conhecimento WHERE empresa=? AND estado IN {knowledge.ATIVOS} ORDER BY assunto, updated_at DESC", (empresa,))]
+
+@app.get('/conhecimento', dependencies=[Depends(user_auth)])
+def listar_conhecimento(empresa: str):
+    with connection() as db:
+        if empresa not in empresas_db(db): raise HTTPException(422, 'Empresa inválida')
+        return {'regras': regras_ativas(db, empresa), 'assuntos': knowledge.ASSUNTOS}
+
+@app.post('/conhecimento', status_code=201, dependencies=[Depends(user_auth)])
+def criar_regra(n: NovaRegra):
+    """Toda regra nova entra pendente de confirmação e informa regras parecidas (duplicata/conflito)."""
+    rid, now = str(uuid.uuid4()), int(time.time())
+    with connection() as db:
+        if n.empresa not in empresas_db(db): raise HTTPException(422, 'Empresa inválida')
+        parecidas = knowledge.semelhantes(n.texto, regras_ativas(db, n.empresa))
+        db.execute('INSERT INTO conhecimento(id,empresa,assunto,texto,estado,fonte,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)',
+                   (rid, n.empresa, n.assunto, n.texto.strip(), n.estado, n.fonte, now, now))
+        log_event(db, 'conhecimento.criada', n.empresa, rid, n.estado)
+        return {'regra': get_regra(db, rid), 'semelhantes': parecidas}
+
+@app.post('/conhecimento/{rid}/confirmar', dependencies=[Depends(user_auth)])
+def confirmar_regra(rid: str):
+    with connection() as db:
+        r = get_regra(db, rid)
+        if r['estado'] not in ('provisoria', 'hipotese', 'sugestao'): raise HTTPException(409, 'Regra não está pendente')
+        now = int(time.time())
+        db.execute("UPDATE conhecimento SET estado='confirmada',confirmado_em=?,updated_at=? WHERE id=?", (now, now, rid))
+        ant, vistos = r['anterior_id'], set()
+        while ant and ant not in vistos:  # versões anteriores confirmadas deixam de valer
+            vistos.add(ant)
+            db.execute("UPDATE conhecimento SET estado='substituida',updated_at=? WHERE id=? AND estado='confirmada'", (now, ant))
+            row = db.execute('SELECT anterior_id FROM conhecimento WHERE id=?', (ant,)).fetchone()
+            ant = row['anterior_id'] if row else None
+        log_event(db, 'conhecimento.confirmada', r['empresa'], rid, f"v{r['versao']}")
+        return get_regra(db, rid)
+
+@app.post('/conhecimento/{rid}/editar', status_code=201, dependencies=[Depends(user_auth)])
+def editar_regra(rid: str, e: EditaRegra):
+    """Nunca sobrescreve: cria nova versão provisória. A anterior segue valendo até a nova ser confirmada."""
+    with connection() as db:
+        r = get_regra(db, rid)
+        if r['estado'] not in knowledge.ATIVOS: raise HTTPException(409, 'Regra inativa')
+        nid, now = str(uuid.uuid4()), int(time.time())
+        db.execute('INSERT INTO conhecimento(id,empresa,assunto,texto,estado,fonte,versao,anterior_id,created_at,updated_at) '
+                   'VALUES(?,?,?,?,?,?,?,?,?,?)',
+                   (nid, r['empresa'], r['assunto'], e.texto.strip(), 'provisoria', e.fonte or r['fonte'], r['versao'] + 1, rid, now, now))
+        if r['estado'] != 'confirmada':
+            db.execute("UPDATE conhecimento SET estado='substituida',updated_at=? WHERE id=?", (now, rid))
+        log_event(db, 'conhecimento.editada', r['empresa'], nid, f"de {rid}")
+        return get_regra(db, nid)
+
+@app.post('/conhecimento/{rid}/arquivar', dependencies=[Depends(user_auth)])
+def arquivar_regra(rid: str):
+    with connection() as db:
+        r = get_regra(db, rid)
+        db.execute("UPDATE conhecimento SET estado='arquivada',updated_at=? WHERE id=?", (int(time.time()), rid))
+        log_event(db, 'conhecimento.arquivada', r['empresa'], rid)
+        return get_regra(db, rid)

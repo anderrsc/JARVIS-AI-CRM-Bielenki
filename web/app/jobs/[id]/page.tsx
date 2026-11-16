@@ -35,6 +35,9 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
             <p className="muted small">
               Criada em {new Date(job.created_at * 1000).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · tentativas: {job.attempts}
             </p>
+            {job.contexto && (
+              <details><summary className="small">Regras confirmadas usadas nesta tarefa</summary><pre className="result small">{job.contexto}</pre></details>
+            )}
             {job.result ? <pre className="result">{job.result}</pre> : <p className="muted">Sem resposta ainda.</p>}
             {pending && <AutoRefresh />}
           </>

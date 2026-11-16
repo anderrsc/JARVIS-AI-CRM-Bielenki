@@ -2,7 +2,7 @@ FROM python:3.12-slim
 WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
-COPY app.py office.py crm.py ./
+COPY app.py office.py crm.py knowledge.py ./
 RUN useradd -u 10001 -m jarvis && mkdir /data && chown jarvis:jarvis /data
 USER jarvis
 EXPOSE 8000
