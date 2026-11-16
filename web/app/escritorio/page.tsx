@@ -6,6 +6,7 @@ import { AGENT_LABEL, AGENTS, type Agent } from "@/lib/validate";
 import Header from "../Header";
 import Forbidden from "../Forbidden";
 import AutoRefresh from "../AutoRefresh";
+import OfficeScene, { type OfficeAgent } from "./OfficeScene";
 
 // Escritório: cada funcionário digital com o que está fazendo agora (fila real) e o que tem atribuído (pendências reais).
 async function Content() {
@@ -31,6 +32,18 @@ async function Content() {
       <Header email={access.email} owner={access.status === "owner"} />
       <div className="office-heading"><div><span className="eyebrow">CENTRO DE OPERAÇÕES</span><h1>Seu escritório digital</h1><p className="muted small">A equipe, as prioridades e o trabalho acontecendo.</p></div><Link href="/tarefas" className="office-task-link">Acompanhar tarefas ↗</Link></div>
       {erro && <p role="alert" className="error">{erro.reason instanceof JarvisError ? erro.reason.message : "Parte dos dados não carregou."}</p>}
+      <OfficeScene agents={agentes.map(a => {
+        const mine = lista.filter(job => job.agent === a.chave);
+        return {
+          id: a.chave, name: a.nome, department: a.departamento,
+          status: jobs.status === "rejected" ? "unknown" : mine.some(job => job.status === "running") ? "working" : mine.some(job => job.status === "queued") ? "queued" : "ready",
+          pending: hoje.status === "fulfilled" ? pend.get(a.chave) ?? 0 : null,
+          queue: jobs.status === "fulfilled" ? mine.filter(job => job.status === "queued").length : null,
+          completed: jobs.status === "fulfilled" ? mine.filter(job => job.status === "completed").length : null,
+          lastJob: mine[0]?.id,
+        } satisfies OfficeAgent;
+      })} />
+      <details className="office-list"><summary>Ver equipe em lista</summary>
       <div className="office">
         {[...deps.entries()].map(([dep, membros]) => (
           <section key={dep} className="dept">
@@ -55,7 +68,8 @@ async function Content() {
           </section>
         ))}
       </div>
-      {ativo && <AutoRefresh />}
+      </details>
+      <AutoRefresh seconds={ativo ? 5 : 20} />
     </main>
   );
 }
