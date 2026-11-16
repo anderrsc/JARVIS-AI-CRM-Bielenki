@@ -10,7 +10,7 @@ import AutoRefresh from "./AutoRefresh";
 
 async function Content() {
   const access = await getAccess();
-  if (access.status !== "owner") return <Forbidden email={access.email} />;
+  if (access.status === "forbidden") return <Forbidden email={access.email} />;
 
   let jobs: JobSummary[] = [];
   let error = "";
@@ -23,7 +23,7 @@ async function Content() {
 
   return (
     <main>
-      <Header email={access.email} />
+      <Header email={access.email} owner={access.status === "owner"} />
       <NewJobForm />
       <section className="card">
         <h2>Tarefas recentes</h2>

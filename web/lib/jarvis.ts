@@ -1,4 +1,5 @@
 import "server-only";
+import { actorHeaders } from "@/lib/auth";
 import type { Agent, Categoria, NovaPendencia } from "@/lib/validate";
 
 // Somente servidor: JARVIS_USER_KEY nunca vai ao navegador. Endpoints /worker não são usados aqui.
@@ -15,7 +16,7 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
   try {
     res = await fetch(base + path, {
       ...init,
-      headers: { "X-API-Key": key, "Content-Type": "application/json" },
+      headers: { "X-API-Key": key, "Content-Type": "application/json", ...(await actorHeaders()) },
       cache: "no-store",
       signal: AbortSignal.timeout(10_000),
     });
@@ -28,6 +29,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     throw new JarvisError(typeof detail === "string" ? detail : "Dados inválidos.");
   }
   if (res.status === 401) throw new JarvisError("Falha de autenticação com o servidor JARVIS.");
+  if (res.status === 403) throw new JarvisError("Sem permissão para esta empresa ou função.");
+  if (res.status === 429) throw new JarvisError("Muitas solicitações. Aguarde alguns minutos.");
   if (!res.ok) throw new JarvisError(`Erro do servidor JARVIS (${res.status}).`);
   return (await res.json()) as T;
 }
@@ -74,3 +77,12 @@ export const regraAcao = (id: string, acao: "confirmar" | "arquivar") =>
   call<Regra>(`/conhecimento/${encodeURIComponent(id)}/${acao}`, { method: "POST" });
 export const editarRegra = (id: string, texto: string) =>
   call<Regra>(`/conhecimento/${encodeURIComponent(id)}/editar`, { method: "POST", body: JSON.stringify({ texto }) });
+
+// ---- Usuários (só proprietário) ----
+export type Membro = { id: string; email: string; nome: string | null; cargo: string | null; ativo: boolean; ultimo_acesso: number | null; acessos: Record<string, string[]> };
+export const listUsuarios = () =>
+  call<{ usuarios: Membro[]; modulos: Record<string, string>; empresas: Record<string, string> }>("/usuarios");
+export const salvarUsuario = (m: { id: string; email: string; nome: string | null; cargo: string | null; acessos: Record<string, string[]> }) =>
+  call<Membro>(`/usuarios/${encodeURIComponent(m.id)}`, { method: "PUT", body: JSON.stringify(m) });
+export const setUsuarioAtivo = (id: string, ativo: boolean) =>
+  call<Membro>(`/usuarios/${encodeURIComponent(id)}/ativo?ativo=${ativo}`, { method: "POST" });

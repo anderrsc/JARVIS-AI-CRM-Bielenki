@@ -1,13 +1,13 @@
 "use server";
 import { revalidatePath } from "next/cache";
-import { requireOwner } from "@/lib/auth";
+import { requireUser } from "@/lib/auth";
 import { createRegra, editarRegra, JarvisError, regraAcao } from "@/lib/jarvis";
 import { isUuid, parseNovaRegra } from "@/lib/validate";
 
 export type RegraState = { error?: string; ok?: number; semelhantes?: string[] };
 
 export async function novaRegra(prev: RegraState, form: FormData): Promise<RegraState> {
-  await requireOwner();
+  await requireUser();
   const p = parseNovaRegra({
     empresa: form.get("empresa"), assunto: form.get("assunto"), texto: form.get("texto"),
     estado: form.get("estado"), fonte: form.get("fonte"),
@@ -29,19 +29,19 @@ function id(form: FormData) {
 }
 
 export async function confirmar(form: FormData) {
-  await requireOwner();
+  await requireUser();
   await regraAcao(id(form), "confirmar");
   revalidatePath("/conhecimento");
 }
 
 export async function arquivar(form: FormData) {
-  await requireOwner();
+  await requireUser();
   await regraAcao(id(form), "arquivar");
   revalidatePath("/conhecimento");
 }
 
 export async function editar(form: FormData) {
-  await requireOwner();
+  await requireUser();
   const texto = String(form.get("texto") ?? "").trim();
   if (texto.length < 5 || texto.length > 1000) throw new Error("Texto inválido");
   await editarRegra(id(form), texto);

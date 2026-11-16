@@ -3,5 +3,9 @@ jarvis-bielenki.duckdns.org {
     request_body {
         max_size 128KB
     }
+    header {
+        Strict-Transport-Security "max-age=63072000; includeSubDomains"
+        -Server
+    }
     reverse_proxy jarvis:8000
 }

@@ -37,7 +37,7 @@ function Item({ r, assuntos }: { r: Regra; assuntos: Record<string, string> }) {
 
 async function Content({ searchParams }: { searchParams: Promise<{ empresa?: string }> }) {
   const access = await getAccess();
-  if (access.status !== "owner") return <Forbidden email={access.email} />;
+  if (access.status === "forbidden") return <Forbidden email={access.email} />;
   const sp = await searchParams;
 
   let error = "";
@@ -57,7 +57,7 @@ async function Content({ searchParams }: { searchParams: Promise<{ empresa?: str
 
   return (
     <main>
-      <Header email={access.email} />
+      <Header email={access.email} owner={access.status === "owner"} />
       <section className="card stack">
         <h1>Central de Conhecimento</h1>
         <p className="muted small">Só regras confirmadas por você chegam aos funcionários digitais, e só da empresa da tarefa. Editar cria uma nova versão; a anterior vale até você confirmar a nova.</p>
