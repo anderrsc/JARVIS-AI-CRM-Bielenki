@@ -39,3 +39,10 @@ test("parseNovaPendencia", async () => {
   assert.equal(parseNovaPendencia({ ...base, titulo: "a" }).ok, false);
   assert.equal(parseNovaPendencia({ ...base, prazo: "" }).ok, true);
 });
+
+test("isCrmItemId", async () => {
+  const { isCrmItemId } = await import("../lib/validate.ts");
+  assert.equal(isCrmItemId("crm:orcamento:11111111-2222-3333-4444-555555555555"), true);
+  assert.equal(isCrmItemId("crm:orcamento:../../x"), false);
+  assert.equal(isCrmItemId("11111111-2222-3333-4444-555555555555"), false);
+});

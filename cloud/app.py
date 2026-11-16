@@ -4,7 +4,7 @@ from datetime import date
 from fastapi import FastAPI, Header, HTTPException, Depends
 from pydantic import BaseModel, Field, field_validator
 from typing import Literal
-import office
+import office, crm
 
 DB = os.getenv('JARVIS_DB', '/data/jarvis.sqlite3')
 USER_KEY = os.getenv('JARVIS_USER_KEY', '')
@@ -26,6 +26,7 @@ def connection():
         conn.execute(office.SCHEMA_EMPRESAS)
         conn.execute(office.SCHEMA_EVENTOS)
         conn.execute(office.SCHEMA)
+        conn.execute('CREATE TABLE IF NOT EXISTS crm_delegacoes (item_id TEXT PRIMARY KEY, job_id TEXT NOT NULL, ts INTEGER NOT NULL)')
         conn.execute('CREATE INDEX IF NOT EXISTS pend_empresa_status ON pendencias(empresa,status)')
         conn.executemany('INSERT OR IGNORE INTO empresas(chave,nome) VALUES(?,?)', office.EMPRESAS.items())
         conn.commit()
@@ -206,9 +207,52 @@ def delegar(pid: str):
         log_event(db, 'pendencia.delegada', p['empresa'], pid, f"{p['agente']}:{jid}")
     return {'job_id': jid, 'agente': p['agente']}
 
+def _crm_itens(db) -> tuple[list[dict], dict]:
+    """Pendências reais do CRM Bielenki (Marquinhos). Falha do CRM não derruba o briefing."""
+    fonte = {'nome': 'CRM Bielenki', 'empresa': crm.EMPRESA, 'ok': False, 'erro': None}
+    if not crm.configurado():
+        fonte['erro'] = 'Conector não configurado'
+        return [], fonte
+    try:
+        raw = crm.buscar_pendencias()
+    except crm.CrmError as e:
+        fonte['erro'] = str(e)
+        return [], fonte
+    delegadas = {r['item_id']: r['job_id'] for r in db.execute('SELECT item_id,job_id FROM crm_delegacoes')}
+    fonte['ok'] = True
+    return crm.para_pendencias(raw, delegadas), fonte
+
 def _briefing(db):
-    itens = [dict(r) for r in db.execute("SELECT * FROM pendencias WHERE status IN ('aberta','delegada')")]
-    return office.briefing(itens, office.hoje_brt(), empresas_db(db))
+    itens = [dict(r, origem='jarvis') for r in db.execute("SELECT * FROM pendencias WHERE status IN ('aberta','delegada')")]
+    itens_crm, fonte = _crm_itens(db)
+    b = office.briefing(itens + itens_crm, office.hoje_brt(), empresas_db(db))
+    b['fontes'] = [fonte]
+    return b
+
+class DelegarCrm(BaseModel):
+    id: str = Field(min_length=5, max_length=120, pattern=r'^crm:[a-z_]+:[0-9a-fA-F-]{36}$')
+
+@app.post('/crm/delegar', dependencies=[Depends(user_auth)])
+def delegar_crm(d: DelegarCrm):
+    """Delega um item do CRM. O conteúdo vem do CRM, não do navegador."""
+    with connection() as db:
+        itens, fonte = _crm_itens(db)
+        if not fonte['ok']: raise HTTPException(409, f"CRM indisponível: {fonte['erro']}")
+        p = next((i for i in itens if i['id'] == d.id), None)
+        if not p: raise HTTPException(404, 'Não encontrado')
+        _, motivo = office.motivo_prazo(p['prazo'], office.hoje_brt())
+        prompt = '\n'.join(x for x in (
+            f"Empresa: {office.EMPRESAS[crm.EMPRESA]} (dados do CRM Bielenki)",
+            f"Tipo: {office.CATEGORIAS[p['categoria']][0]}", f"Pendência: {p['titulo']}",
+            f"Situação: {p['detalhe']}" if p['detalhe'] else '', f"Cliente: {p['cliente']}" if p['cliente'] else '',
+            f"Valor: R$ {p['valor']}" if p['valor'] is not None else '',
+            f"Prazo: {p['prazo']} ({motivo})" if p['prazo'] else '',
+            'Prepare as próximas ações para resolver esta pendência e o que depende de aprovação do proprietário. '
+            'Mensagens a clientes devem ser rascunhos.') if x)
+        jid = enqueue(db, p['agente'], prompt)
+        db.execute('INSERT OR REPLACE INTO crm_delegacoes(item_id,job_id,ts) VALUES(?,?,?)', (d.id, jid, int(time.time())))
+        log_event(db, 'crm.delegada', crm.EMPRESA, d.id, f"{p['agente']}:{jid}")
+    return {'job_id': jid, 'agente': p['agente']}
 
 @app.get('/hoje', dependencies=[Depends(user_auth)])
 def hoje():

@@ -40,3 +40,10 @@ cd web && npm ci && npm test && npm run lint && npm run build
 - Toda página e ação valida a sessão com `supabase.auth.getUser()` e compara com `ALLOWED_USER_ID`. Outra conta logada vê "sem permissão".
 - Mutations são Server Actions (checagem Origin/Host do Next.js).
 - Pendente: rate limiting distribuído, dono por tarefa no backend (necessário antes de multiusuário), backup do SQLite.
+
+## Conector CRM Bielenki (Marquinhos)
+A tela **Hoje** lê as pendências reais da Central de Pendências do CRM (`pending_center`), somente leitura, e permite delegar cada item a um funcionário digital.
+1. No CRM, crie um usuário só para o JARVIS (cargo com menor acesso, empresa Marquinhos, status ativo).
+2. No `.env.vps` da VPS, preencha `CRM_SUPABASE_URL`, `CRM_SUPABASE_ANON_KEY` (chave pública do Supabase do CRM), `CRM_JARVIS_EMAIL`, `CRM_JARVIS_PASSWORD` e `CRM_SITE_URL` (ver `.env.vps.example`).
+3. `./compose.sh up -d --build jarvis worker`.
+Nunca use a `service_role` do CRM: o JARVIS deve ver só o que o próprio usuário vê (RLS). O worker não recebe essas variáveis.

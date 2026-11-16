@@ -2,8 +2,8 @@
 import { redirect } from "next/navigation";
 import { revalidatePath } from "next/cache";
 import { requireOwner } from "@/lib/auth";
-import { createPendencia, delegarPendencia, JarvisError, pedirPlano, setPendenciaStatus } from "@/lib/jarvis";
-import { isUuid, parseNovaPendencia } from "@/lib/validate";
+import { createPendencia, delegarCrm, delegarPendencia, JarvisError, pedirPlano, setPendenciaStatus } from "@/lib/jarvis";
+import { isCrmItemId, isUuid, parseNovaPendencia } from "@/lib/validate";
 
 export type FormState = { error?: string; ok?: number };
 
@@ -34,6 +34,15 @@ function pendenciaId(form: FormData): string {
 export async function delegar(form: FormData) {
   await requireOwner();
   const { job_id } = await delegarPendencia(pendenciaId(form));
+  revalidatePath("/hoje");
+  redirect(`/jobs/${job_id}`);
+}
+
+export async function delegarItemCrm(form: FormData) {
+  await requireOwner();
+  const id = form.get("id");
+  if (!isCrmItemId(id)) throw new Error("Item inválido");
+  const { job_id } = await delegarCrm(id);
   revalidatePath("/hoje");
   redirect(`/jobs/${job_id}`);
 }
