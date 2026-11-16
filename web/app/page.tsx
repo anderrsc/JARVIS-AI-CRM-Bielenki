@@ -2,7 +2,7 @@ import { Suspense } from "react";
 import Link from "next/link";
 import { getAccess } from "@/lib/auth";
 import { listJobs, JarvisError, type JobSummary } from "@/lib/jarvis";
-import { STATUS_LABEL } from "@/lib/validate";
+import { AGENT_LABEL, STATUS_LABEL } from "@/lib/validate";
 import Header from "./Header";
 import Forbidden from "./Forbidden";
 import NewJobForm from "./NewJobForm";
@@ -33,7 +33,7 @@ async function Content() {
           {jobs.map((j) => (
             <li key={j.id}>
               <Link href={`/jobs/${j.id}`}>
-                <span className="agent">{j.agent.toUpperCase()}</span>
+                <span className="agent">{AGENT_LABEL[j.agent] ?? j.agent}</span>
                 <span className={`status s-${j.status}`}>{STATUS_LABEL[j.status] ?? j.status}</span>
                 <time className="muted small">{new Date(j.created_at * 1000).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })}</time>
               </Link>
