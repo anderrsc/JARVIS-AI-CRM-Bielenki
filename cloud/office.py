@@ -140,7 +140,7 @@ def briefing(itens: list[dict], hoje: date, empresas_cadastradas: dict | None = 
             contagem[i['categoria']] = contagem.get(i['categoria'], 0) + 1
         atrasadas = sum(1 for i in lista if i['dias'] is not None and i['dias'] < 0)
         if lista:
-            partes = [f"{n} {CATEGORIAS[c][0].lower()}" + ('' if n == 1 else ' (itens)')
+            partes = [f"{CATEGORIAS[c][0].lower()}: {n}"
                       for c, n in sorted(contagem.items(), key=lambda kv: RANK.get(kv[0], 99))]
             resumo = f"Na {nome}: " + '; '.join(partes) + '.'
             if atrasadas:
