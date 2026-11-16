@@ -50,7 +50,7 @@ export type Pendencia = {
 export type Fonte = { nome: string; empresa: string; ok: boolean; erro: string | null };
 export type BriefingEmpresa = { empresa: string; nome: string; resumo: string; atrasadas: number; total: number; itens: Pendencia[] };
 export type Briefing = { data: string; empresas: BriefingEmpresa[]; fontes?: Fonte[] };
-export type Equipe = { empresas: { chave: string; nome: string }[] };
+export type Equipe = { empresas: { chave: string; nome: string }[]; agentes?: { chave: Agent; nome: string; departamento: string }[] };
 
 export const getHoje = () => call<Briefing>("/hoje");
 export const getEquipe = () => call<Equipe>("/equipe");

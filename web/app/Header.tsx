@@ -6,8 +6,10 @@ export default function Header({ email, owner = false }: { email: string; owner?
     <header className="header">
       <Link href="/" className="brand">JARVIS</Link>
       <nav className="nav">
+        <Link href="/">Conversa</Link>
+        <Link href="/escritorio">Escritório</Link>
         <Link href="/hoje">Hoje</Link>
-        <Link href="/">Tarefas</Link>
+        <Link href="/tarefas">Tarefas</Link>
         <Link href="/conhecimento">Conhecimento</Link>
         {owner && <Link href="/usuarios">Usuários</Link>}
       </nav>
