@@ -4,6 +4,7 @@ import hmac
 import os
 import threading
 import gc
+from functools import partial
 from contextlib import asynccontextmanager
 from pathlib import Path
 from unittest.mock import patch
@@ -20,6 +21,7 @@ KEY = os.environ.get("JARVIS_VOICE_KEY") or os.environ.get("JARVIS_USER_KEY", ""
 MODEL = None
 LOCK = threading.Lock()
 DEVICE = os.environ.get("JARVIS_VOICE_DEVICE", "cuda")
+STEPS = int(os.environ.get("JARVIS_VOICE_STEPS", "10"))
 
 
 def load_cpu_model():
@@ -69,6 +71,11 @@ async def lifespan(app):
         MODEL = load_cpu_model() if DEVICE == "cpu" else ChatterboxMultilingualTTS.from_local(MODEL_DIR, DEVICE)
     print("Preparing original voice reference", flush=True)
     MODEL.prepare_conditionals(str(REFERENCE), exaggeration=0.35)
+    MODEL.s3gen.inference = partial(MODEL.s3gen.inference, n_cfm_timesteps=STEPS)
+    # Compile/warm the decoder before accepting traffic; retain the common opening.
+    print("Warming Portuguese voice", flush=True)
+    synthesize(Speech(text="Pois não, senhor."), authorization=f"Bearer {KEY}")
+    print("Portuguese voice ready", flush=True)
     yield
     MODEL = None
 
@@ -101,7 +108,7 @@ def synthesize(body: Speech, authorization: str | None = Header(default=None)):
         raise HTTPException(429, "Voice busy")
     try:
         # Persistent generated audio remains on the user's own machine.
-        identity = REFERENCE.read_bytes() + text.encode("utf8") + b"chatterbox-0.1.7-pt-v1"
+        identity = REFERENCE.read_bytes() + text.encode("utf8") + f"chatterbox-0.1.7-pt-v1-steps-{STEPS}".encode()
         target = CACHE / (hashlib.sha256(identity).hexdigest() + ".wav")
         if not target.is_file():
             import soundfile as sf

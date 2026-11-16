@@ -21,3 +21,7 @@ test("short opening plays first and longer speech keeps every word", () => {
   assert.equal(parts.join(" "), text.trim());
   assert.ok(parts.every(part => part.length <= 140));
 });
+
+test("speech boundaries preserve currency values and decimal numbers", () => {
+  assert.deepEqual(speechParts("O valor é R$ 1.500,00. Confira hoje."), ["O valor é R$ 1.500,00.", "Confira hoje."]);
+});

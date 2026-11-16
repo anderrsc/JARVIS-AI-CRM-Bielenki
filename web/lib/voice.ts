@@ -14,7 +14,7 @@ export function validVoiceText(value: unknown): value is string {
 
 // A short first phrase can play while the server prepares the rest.
 export function speechParts(text: string): string[] {
-  const sentences = text.match(/[^.!?]+[.!?]+|[^.!?]+$/g) ?? [];
+  const sentences = text.match(/.+?(?:[.!?]+(?=\s|$)|$)/g) ?? [];
   return sentences.flatMap(sentence => {
     const words = sentence.trim().split(/\s+/);
     const parts: string[] = [];

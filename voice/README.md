@@ -6,7 +6,7 @@ Os pesos são baixados uma vez. Depois, `server.py` carrega de `model/`, sem con
 
 ## Preparar
 
-Python 3.12 e uma GPU NVIDIA são recomendados. A máquina de desenvolvimento tem RTX 3060 de 12 GB. A implantação CPU na VPS usa limites explícitos de 2300 MB de RAM, 4300 MB com swap e duas CPUs. Em hardware limitado, as falas são curtas, com o restante na tela; o tempo precisa ser medido antes de prometer resposta em tempo real.
+Python 3.12 e uma GPU NVIDIA são recomendados. A máquina de desenvolvimento tem RTX 3060 de 12 GB. A implantação CPU na VPS usa limites explícitos de 2800 MB de RAM, 4300 MB com swap e 3,5 CPUs, com quatro threads e decodificação em quatro passos. O modelo de linguagem é quantizado em INT8; as projeções de saída permanecem em ponto flutuante por compatibilidade. O serviço aquece e guarda uma saudação antes de aceitar tráfego. O painel prepara a próxima frase durante a reprodução, preservando números monetários. Uma CPU pequena ainda não oferece a mesma latência de uma GPU.
 
 ```powershell
 python -m venv voice/.venv

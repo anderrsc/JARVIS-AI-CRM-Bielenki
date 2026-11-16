@@ -6,6 +6,7 @@ services:
     environment:
       JARVIS_VOICE_DEVICE: cpu
       VOICE_THREADS: "4"
+      JARVIS_VOICE_STEPS: "4"
     volumes:
       - ./voice/model:/app/model:ro
       - ./voice/reference.wav:/app/reference.wav:ro
