@@ -97,4 +97,10 @@ export const STATUS_LABEL: Record<string, string> = {
   delegada: "Delegada",
   concluida: "Concluída",
   cancelada: "Cancelada",
+  crm: "No CRM",
 };
+
+// Id de item do CRM: crm:<categoria>:<uuid> (o backend busca o conteúdo no próprio CRM).
+export function isCrmItemId(v: unknown): v is string {
+  return typeof v === "string" && /^crm:[a-z_]+:[0-9a-f-]{36}$/i.test(v) && isUuid(v.slice(v.lastIndexOf(":") + 1));
+}

@@ -6,6 +6,8 @@ services:
       - .env.vps
     environment:
       JARVIS_USER_KEY: ""
+      CRM_JARVIS_PASSWORD: ""
+      CRM_SUPABASE_ANON_KEY: ""
       JARVIS_CLOUD_URL: http://jarvis:8000
       JARVIS_INTERNAL_NETWORK: "1"
       JARVIS_WORKER_ID: vps

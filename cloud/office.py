@@ -117,12 +117,13 @@ def motivo_prazo(prazo: str | None, hoje: date) -> tuple[int, str]:
 
 
 def ordenar(itens: list[dict], hoje: date) -> list[dict]:
-    """Atrasadas e vencendo na janela sobem; depois segue a ordem de categorias da diretriz."""
+    """Atrasadas, vencendo na janela e urgentes do CRM sobem; depois segue a ordem de categorias da diretriz."""
     out = []
     for it in itens:
         dias, motivo = motivo_prazo(it.get('prazo'), hoje)
         it = dict(it, motivo=motivo, dias=dias if dias != 10**6 else None)
-        it['_k'] = (0 if dias <= JANELA_PRAZO_DIAS else 1, RANK.get(it['categoria'], 99), dias, it['created_at'])
+        destaque = dias <= JANELA_PRAZO_DIAS or it.get('prioridade') == 'high'
+        it['_k'] = (0 if destaque else 1, RANK.get(it['categoria'], 99), dias, it['created_at'])
         out.append(it)
     out.sort(key=lambda i: i['_k'])
     for it in out:

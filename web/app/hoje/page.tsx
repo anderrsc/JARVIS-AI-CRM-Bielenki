@@ -7,7 +7,7 @@ import Header from "../Header";
 import Forbidden from "../Forbidden";
 import NovaPendenciaForm from "./NovaPendenciaForm";
 import PlanoButton from "./PlanoButton";
-import { concluir, delegar } from "./actions";
+import { concluir, delegar, delegarItemCrm } from "./actions";
 
 async function Content() {
   const access = await getAccess();
@@ -35,6 +35,11 @@ async function Content() {
               {" · "}priorizado: urgentes, clientes aguardando, prazos, produção, instalações, cobranças, compras, compromissos, decisões, melhorias.
             </p>
             {hoje.empresas.map((e) => <p key={e.empresa}>{e.resumo}</p>)}
+            {hoje.fontes?.map((f) => (
+              <p key={f.nome} className={`small ${f.ok ? "ok" : "warn"}`}>
+                {f.nome}: {f.ok ? "conectado" : f.erro ?? "indisponível"}
+              </p>
+            ))}
             <PlanoButton />
           </>
         )}
@@ -49,11 +54,13 @@ async function Content() {
               <li key={p.id} className={p.dias != null && p.dias < 0 ? "late" : ""}>
                 <div>
                   <span className="tag">{CATEGORIA_LABEL[p.categoria] ?? p.categoria}</span>
+                  {p.prioridade === "high" && <span className="small error"> · urgente no CRM</span>}
                   {p.motivo && <span className={`small ${p.dias != null && p.dias <= 0 ? "error" : "warn"}`}> · {p.motivo}</span>}
                 </div>
                 <strong>{p.titulo}</strong>
                 <span className="muted small">
                   {p.cliente && <>Cliente: {p.cliente} · </>}
+                  {p.valor != null && <>{p.valor.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })} · </>}
                   Responsável: {AGENT_LABEL[p.agente] ?? p.agente} · {STATUS_LABEL[p.status] ?? p.status}
                 </span>
                 {p.detalhe && <span className="small">{p.detalhe}</span>}
@@ -61,9 +68,15 @@ async function Content() {
                   {p.status === "delegada" && p.job_id ? (
                     <Link href={`/jobs/${p.job_id}`}>Ver resposta do agente</Link>
                   ) : (
-                    <form action={delegar}><input type="hidden" name="id" value={p.id} /><button className="secondary">Delegar</button></form>
+                    <form action={p.origem === "crm" ? delegarItemCrm : delegar}>
+                      <input type="hidden" name="id" value={p.id} /><button className="secondary">Delegar</button>
+                    </form>
                   )}
-                  <form action={concluir}><input type="hidden" name="id" value={p.id} /><button className="link">Concluir</button></form>
+                  {p.origem === "crm" ? (
+                    p.link && <a href={p.link} target="_blank" rel="noopener noreferrer">Abrir no CRM</a>
+                  ) : (
+                    <form action={concluir}><input type="hidden" name="id" value={p.id} /><button className="link">Concluir</button></form>
+                  )}
                 </div>
               </li>
             ))}

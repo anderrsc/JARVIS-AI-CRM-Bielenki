@@ -42,9 +42,11 @@ export type Pendencia = {
   id: string; empresa: string; categoria: Categoria; titulo: string; detalhe: string | null;
   cliente: string | null; prazo: string | null; status: string; agente: Agent; job_id: string | null;
   created_at: number; motivo?: string; dias?: number | null;
+  origem?: "jarvis" | "crm"; link?: string | null; valor?: number | null; prioridade?: string | null;
 };
+export type Fonte = { nome: string; empresa: string; ok: boolean; erro: string | null };
 export type BriefingEmpresa = { empresa: string; nome: string; resumo: string; atrasadas: number; total: number; itens: Pendencia[] };
-export type Briefing = { data: string; empresas: BriefingEmpresa[] };
+export type Briefing = { data: string; empresas: BriefingEmpresa[]; fontes?: Fonte[] };
 export type Equipe = { empresas: { chave: string; nome: string }[] };
 
 export const getHoje = () => call<Briefing>("/hoje");
@@ -56,3 +58,5 @@ export const setPendenciaStatus = (id: string, status: "concluida" | "cancelada"
 export const delegarPendencia = (id: string) =>
   call<{ job_id: string; agente: Agent }>(`/pendencias/${encodeURIComponent(id)}/delegar`, { method: "POST" });
 export const pedirPlano = () => call<{ id: string }>("/hoje/plano", { method: "POST" });
+export const delegarCrm = (id: string) =>
+  call<{ job_id: string; agente: Agent }>("/crm/delegar", { method: "POST", body: JSON.stringify({ id }) });
