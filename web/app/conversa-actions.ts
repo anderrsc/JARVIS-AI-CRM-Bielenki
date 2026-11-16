@@ -27,6 +27,7 @@ export async function conversar(texto: unknown, historico: unknown): Promise<Res
   const it = intencao(t);
   try {
     if (it.tipo === "pendencias") return { tipo: "texto", texto: responderPendencias(await getHoje(), it), fonte: "dados" };
+    if (it.tipo === "saudacao") return { tipo: "texto", fonte: "dados", texto: "Pois não, senhor. Posso dizer o que temos para hoje, as cobranças ou as instalações, anotar uma tarefa ou delegar pendências." };
     if (it.tipo === "plano") return { tipo: "tarefa", id: (await pedirPlano()).id, agente: AGENT_LABEL.secretario };
     if (it.tipo === "anotar") {
       const quando = it.prazo ? ` com prazo ${it.prazo === "hoje" ? "hoje" : "amanhã"}` : "";

@@ -68,3 +68,9 @@ test("delegar ignora já delegados e limita a quantidade", () => {
   assert.equal(prazoIso("amanha", new Date("2026-11-16T01:00:00Z")), "2026-11-16");
   assert.equal(prazoIso("hoje", new Date("2026-11-16T01:00:00Z")), "2026-11-15");
 });
+
+test("chamado simples responde na hora", () => {
+  assert.equal(intencao("Jarvis").tipo, "saudacao");
+  assert.equal(intencao("Oi Jarvis, tudo bem?").tipo, "saudacao");
+  assert.equal(intencao("Jarvis, o que tenho hoje?").tipo, "pendencias");
+});
