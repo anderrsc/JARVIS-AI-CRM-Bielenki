@@ -11,7 +11,7 @@ import { concluir, delegar, delegarItemCrm } from "./actions";
 
 async function Content() {
   const access = await getAccess();
-  if (access.status !== "owner") return <Forbidden email={access.email} />;
+  if (access.status === "forbidden") return <Forbidden email={access.email} />;
 
   let hoje: Briefing | null = null;
   let equipe: Equipe | null = null;
@@ -24,7 +24,7 @@ async function Content() {
 
   return (
     <main>
-      <Header email={access.email} />
+      <Header email={access.email} owner={access.status === "owner"} />
       <section className="card stack">
         <h1>O que temos para hoje</h1>
         {error && <p role="alert" className="error">{error}</p>}

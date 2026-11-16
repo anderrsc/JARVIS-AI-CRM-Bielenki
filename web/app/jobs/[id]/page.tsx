@@ -10,7 +10,7 @@ import AutoRefresh from "../../AutoRefresh";
 
 async function Content({ params }: { params: Promise<{ id: string }> }) {
   const access = await getAccess();
-  if (access.status !== "owner") return <Forbidden email={access.email} />;
+  if (access.status === "forbidden") return <Forbidden email={access.email} />;
   const { id } = await params;
   if (!isUuid(id)) notFound();
 
@@ -25,7 +25,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
 
   return (
     <main>
-      <Header email={access.email} />
+      <Header email={access.email} owner={access.status === "owner"} />
       <p><Link href="/">← Voltar</Link></p>
       <section className="card stack">
         {error && <p role="alert" className="error">{error}</p>}

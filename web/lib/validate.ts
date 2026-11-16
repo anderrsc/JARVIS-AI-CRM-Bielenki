@@ -117,3 +117,19 @@ export function parseNovaRegra(f: { empresa: unknown; assunto: unknown; texto: u
   const estado = typeof f.estado === "string" && ["provisoria", "hipotese", "sugestao"].includes(f.estado) ? f.estado : "provisoria";
   return { ok: true, value: { empresa: f.empresa, assunto: f.assunto, texto, estado, fonte: opt(f.fonte, 200) } };
 }
+
+// Cadastro de membro: só aceita os campos esperados (sem mass assignment). Módulos são validados no backend.
+export function parseMembro(form: { get(k: string): unknown; getAll(k: string): unknown[] }):
+  { ok: true; value: { id: string; email: string; nome: string | null; cargo: string | null; acessos: Record<string, string[]> } } | { ok: false; error: string } {
+  const id = form.get("id");
+  if (!isUuid(id)) return { ok: false, error: "UUID inválido." };
+  const email = typeof form.get("email") === "string" ? (form.get("email") as string).trim() : "";
+  if (!/^[^@\s]+@[^@\s]+$/.test(email) || email.length > 200) return { ok: false, error: "E-mail inválido." };
+  const acessos: Record<string, string[]> = {};
+  for (const v of form.getAll("acesso")) {
+    if (typeof v !== "string" || !/^[a-z0-9_-]{1,40}:[a-z_]{1,40}$/.test(v)) return { ok: false, error: "Acesso inválido." };
+    const [e, m] = v.split(":");
+    (acessos[e] ??= []).push(m);
+  }
+  return { ok: true, value: { id: id.toLowerCase(), email, nome: opt(form.get("nome"), 120), cargo: opt(form.get("cargo"), 80), acessos } };
+}

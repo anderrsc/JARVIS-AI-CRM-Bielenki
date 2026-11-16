@@ -1,4 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
+// O navegador nunca usa o Supabase direto: a sessão pode ficar só em cookie httpOnly.
+const SECURE_COOKIE = { httpOnly: true, secure: process.env.NODE_ENV === "production", sameSite: "lax" as const };
 import { NextResponse, type NextRequest } from "next/server";
 
 // Renova a sessão Supabase nos cookies. A autorização acontece no servidor (lib/auth.ts).
@@ -13,7 +15,7 @@ export async function proxy(request: NextRequest) {
         setAll: (list) => {
           list.forEach(({ name, value }) => request.cookies.set(name, value));
           response = NextResponse.next({ request });
-          list.forEach(({ name, value, options }) => response.cookies.set(name, value, options));
+          list.forEach(({ name, value, options }) => response.cookies.set(name, value, { ...options, ...SECURE_COOKIE }));
         },
       },
     },

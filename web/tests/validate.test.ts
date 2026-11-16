@@ -55,3 +55,16 @@ test("parseNovaRegra", async () => {
   assert.equal(parseNovaRegra({ empresa: "x/y", assunto: "medicao", texto: "abcdef", estado: "", fonte: null }).ok, false);
   assert.equal(parseNovaRegra({ empresa: "marquinhos", assunto: "medicao", texto: "abc", estado: "", fonte: null }).ok, false);
 });
+
+test("parseMembro", async () => {
+  const { parseMembro } = await import("../lib/validate.ts");
+  const fd = (o: Record<string, string | string[]>) => ({
+    get: (k: string) => (Array.isArray(o[k]) ? o[k][0] : o[k]) ?? null,
+    getAll: (k: string) => (Array.isArray(o[k]) ? o[k] : o[k] ? [o[k]] : []),
+  });
+  const ok = parseMembro(fd({ id: "AAAAAAAA-bbbb-cccc-dddd-eeeeeeeeeeee", email: "a@b.com", acesso: ["marquinhos:hoje", "marquinhos:delegar"] }));
+  assert.equal(ok.ok, true);
+  if (ok.ok) assert.deepEqual(ok.value.acessos, { marquinhos: ["hoje", "delegar"] });
+  assert.equal(parseMembro(fd({ id: "x", email: "a@b.com" })).ok, false);
+  assert.equal(parseMembro(fd({ id: "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee", email: "a@b.com", acesso: "x;drop" })).ok, false);
+});
