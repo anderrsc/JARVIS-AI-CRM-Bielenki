@@ -50,6 +50,7 @@ export function useJarvisVoice() {
         const data = await response.json().catch(() => null);
         throw new Error(data?.error || "A voz está indisponível. Continue por texto.");
       }
+      if (!response.headers.get("content-type")?.startsWith("audio/")) throw new Error("Sua sessão expirou. Entre novamente para ouvir as respostas.");
       const blob = await response.blob();
       if (id !== version.current) return;
       const url = URL.createObjectURL(blob);

@@ -3,8 +3,10 @@ import hashlib
 import hmac
 import os
 import threading
+import gc
 from contextlib import asynccontextmanager
 from pathlib import Path
+from unittest.mock import patch
 
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import FileResponse
@@ -20,6 +22,36 @@ LOCK = threading.Lock()
 DEVICE = os.environ.get("JARVIS_VOICE_DEVICE", "cuda")
 
 
+def load_cpu_model():
+    """Assign memory-mapped weights; quantize the language model before the vocoder."""
+    import torch
+    from safetensors.torch import load_file
+    from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+    from chatterbox.models.t3 import T3
+    from chatterbox.models.t3.modules.t3_config import T3Config
+    from chatterbox.models.s3gen import S3Gen
+    from chatterbox.models.voice_encoder import VoiceEncoder
+    from chatterbox.models.tokenizers import MTLTokenizer
+
+    print("Loading local voice encoder", flush=True)
+    ve = VoiceEncoder()
+    ve.load_state_dict(torch.load(MODEL_DIR / "ve.pt", map_location="cpu", weights_only=True, mmap=True), assign=True)
+    ve.eval()
+    print("Loading and quantizing local language model", flush=True)
+    t3 = T3(T3Config.multilingual())
+    t3.load_state_dict(load_file(str(MODEL_DIR / "t3_mtl23ls_v2.safetensors")), assign=True)
+    t3.eval()
+    # Keep output heads in float: Chatterbox reads their weight.device directly.
+    torch.ao.quantization.quantize_dynamic(t3.tfmr, {torch.nn.Linear}, dtype=torch.qint8, inplace=True)
+    gc.collect()
+    print("Loading local speech decoder", flush=True)
+    s3gen = S3Gen()
+    s3gen.load_state_dict(torch.load(MODEL_DIR / "s3gen.pt", map_location="cpu", weights_only=True, mmap=True), assign=True)
+    s3gen.eval()
+    tokenizer = MTLTokenizer(str(MODEL_DIR / "grapheme_mtl_merged_expanded_v1.json"))
+    return ChatterboxMultilingualTTS(t3, s3gen, ve, tokenizer, "cpu")
+
+
 @asynccontextmanager
 async def lifespan(app):
     global MODEL
@@ -29,9 +61,13 @@ async def lifespan(app):
         raise RuntimeError("Run prepare.py before starting the voice server")
     import torch
     from chatterbox.mtl_tts import ChatterboxMultilingualTTS
+    from chatterbox.models.tokenizers.tokenizer import ChineseCangjieConverter
     CACHE.mkdir(exist_ok=True)
     torch.set_num_threads(int(os.environ.get("VOICE_THREADS", "4")))
-    MODEL = ChatterboxMultilingualTTS.from_local(MODEL_DIR, DEVICE)
+    # Portuguese-only service: don't download or initialize unrelated Chinese models.
+    with patch.object(ChineseCangjieConverter, "_load_cangjie_mapping", return_value=None), patch.object(ChineseCangjieConverter, "_init_segmenter", return_value=None):
+        MODEL = load_cpu_model() if DEVICE == "cpu" else ChatterboxMultilingualTTS.from_local(MODEL_DIR, DEVICE)
+    print("Preparing original voice reference", flush=True)
     MODEL.prepare_conditionals(str(REFERENCE), exaggeration=0.35)
     yield
     MODEL = None

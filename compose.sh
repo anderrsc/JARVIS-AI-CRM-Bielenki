@@ -4,4 +4,5 @@ exec docker compose \
   -f compose.vps.yaml \
   -f compose.backend.yaml \
   -f compose.worker.yaml \
-  -f compose.https.yaml "$@"
+  -f compose.https.yaml \
+  -f compose.voice.yaml "$@"

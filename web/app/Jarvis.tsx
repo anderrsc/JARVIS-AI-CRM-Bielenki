@@ -100,7 +100,11 @@ export default function Jarvis({ nome }: { nome: string }) {
     };
     passo();
   }, []);
-  useEffect(() => { animar(); return () => cancelAnimationFrame(raf.current); }, [animar]);
+  useEffect(() => {
+    if (estado === "ouvindo" || voicePlaying) animar();
+    else nucleo.current?.style.setProperty("--lvl", "0");
+    return () => cancelAnimationFrame(raf.current);
+  }, [animar, estado, voicePlaying]);
 
   const pararMic = useCallback(() => {
     const a = audio.current;
@@ -108,6 +112,10 @@ export default function Jarvis({ nome }: { nome: string }) {
     a?.stream.getTracks().forEach((t) => t.stop());
     a?.ctx.close().catch(() => {});
   }, []);
+  useEffect(() => () => {
+    if (rec.current) { rec.current.onend = null; rec.current.abort(); }
+    pararMic();
+  }, [pararMic]);
 
   const atualizar = (id: string, p: Partial<Msg>) => setMsgs((m) => m.map((x) => (x.id === id ? { ...x, ...p } : x)));
 

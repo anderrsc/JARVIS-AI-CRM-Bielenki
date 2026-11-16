@@ -7,5 +7,10 @@ jarvis-bielenki.duckdns.org {
         Strict-Transport-Security "max-age=63072000; includeSubDomains"
         -Server
     }
-    reverse_proxy jarvis:8000
+    handle_path /voice/* {
+        reverse_proxy voice:8010
+    }
+    handle {
+        reverse_proxy jarvis:8000
+    }
 }
