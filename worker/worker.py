@@ -7,15 +7,18 @@ WORKER_ID = os.getenv('JARVIS_WORKER_ID', socket.gethostname())
 OLLAMA = os.getenv('OLLAMA_URL', 'http://127.0.0.1:11434')
 MODEL = os.getenv('OLLAMA_MODEL','qwen2.5:3b')
 POLL = max(5, int(os.getenv('JARVIS_POLL_SECONDS','15')))
+NUM_PREDICT = int(os.getenv('OLLAMA_NUM_PREDICT','512'))
 PROMPTS = {
  'jarvis': 'Você é JARVIS, coordenador de agentes. Responda em português. Planeje e delegue tarefas; não afirme que executou ações externas.',
  'sentinel': 'Você é SENTINEL, auditor de software. Responda em português com riscos, gravidade, evidências disponíveis e testes recomendados. Não invente testes executados.'
 }
 
-def infer(agent, prompt):
+def infer(agent, prompt, system=None):
+    # O backend envia o papel do agente (cloud/office.py); PROMPTS é só fallback para backend antigo.
+    system = system or PROMPTS.get(agent, PROMPTS['jarvis'])
     with httpx.Client(timeout=180) as client:
-        response=client.post(OLLAMA.rstrip('/')+'/api/chat',json={'model':MODEL,'stream':False,'options':{'num_ctx':2048,'num_predict':256},'messages':[
-            {'role':'system','content':PROMPTS[agent]}, {'role':'user','content':prompt}]})
+        response=client.post(OLLAMA.rstrip('/')+'/api/chat',json={'model':MODEL,'stream':False,'options':{'num_ctx':2048,'num_predict':NUM_PREDICT},'messages':[
+            {'role':'system','content':system}, {'role':'user','content':prompt}]})
         response.raise_for_status()
         return response.json()['message']['content']
 
@@ -26,7 +29,7 @@ def cycle():
         job=r.json()['job']
         if not job: return False
         try:
-            answer=infer(job['agent'],job['prompt'])
+            answer=infer(job['agent'],job['prompt'],job.get('system'))
             success=True
         except Exception as exc:
             answer=f'Falha no worker: {type(exc).__name__}'

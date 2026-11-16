@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { getAccess } from "@/lib/auth";
 import { getJob, JarvisError, type Job } from "@/lib/jarvis";
-import { isUuid, STATUS_LABEL } from "@/lib/validate";
+import { AGENT_LABEL, isUuid, STATUS_LABEL } from "@/lib/validate";
 import Header from "../../Header";
 import Forbidden from "../../Forbidden";
 import AutoRefresh from "../../AutoRefresh";
@@ -31,7 +31,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
         {error && <p role="alert" className="error">{error}</p>}
         {job && (
           <>
-            <h2>{job.agent.toUpperCase()} <span className={`status s-${job.status}`}>{STATUS_LABEL[job.status] ?? job.status}</span></h2>
+            <h2>{AGENT_LABEL[job.agent] ?? job.agent} <span className={`status s-${job.status}`}>{STATUS_LABEL[job.status] ?? job.status}</span></h2>
             <p className="muted small">
               Criada em {new Date(job.created_at * 1000).toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" })} · tentativas: {job.attempts}
             </p>

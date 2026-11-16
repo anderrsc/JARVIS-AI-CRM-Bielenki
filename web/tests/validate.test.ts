@@ -26,3 +26,16 @@ test("isUuid", () => {
   assert.equal(isUuid(OWNER), true);
   assert.equal(isUuid("../worker/claim"), false);
 });
+
+test("parseNovaPendencia", async () => {
+  const { parseNovaPendencia } = await import("../lib/validate.ts");
+  const base = { empresa: "marquinhos", categoria: "urgente", titulo: " Medir obra ", cliente: " ", prazo: "2026-11-20", detalhe: null };
+  const ok = parseNovaPendencia(base);
+  assert.equal(ok.ok, true);
+  if (ok.ok) assert.deepEqual(ok.value, { empresa: "marquinhos", categoria: "urgente", titulo: "Medir obra", cliente: null, prazo: "2026-11-20", detalhe: null });
+  assert.equal(parseNovaPendencia({ ...base, categoria: "x" }).ok, false);
+  assert.equal(parseNovaPendencia({ ...base, empresa: "../x" }).ok, false);
+  assert.equal(parseNovaPendencia({ ...base, prazo: "20/11/2026" }).ok, false);
+  assert.equal(parseNovaPendencia({ ...base, titulo: "a" }).ok, false);
+  assert.equal(parseNovaPendencia({ ...base, prazo: "" }).ok, true);
+});

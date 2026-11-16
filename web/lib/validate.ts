@@ -1,6 +1,65 @@
 // Validação pura (sem dependências) — testada em tests/validate.test.ts
-export const AGENTS = ["jarvis", "sentinel"] as const;
-export type Agent = (typeof AGENTS)[number];
+// Mesmas chaves de cloud/office.py (AGENTES). O backend também valida.
+export const AGENT_LABEL = {
+  jarvis: "JARVIS (coordenação)",
+  secretario: "Secretário Executivo",
+  comercial: "Assistente Comercial",
+  orcamentos: "Assistente de Orçamentos",
+  producao: "Coordenador de Produção",
+  instalacoes: "Coordenador de Instalações",
+  financeiro: "Assistente Financeiro",
+  compras: "Assistente de Compras",
+  atendimento: "Assistente de Atendimento",
+  administrativo: "Assistente Administrativo",
+  gestao: "Analista de Gestão",
+  programador: "Programador",
+  pesquisador: "Pesquisador",
+  sentinel: "SENTINEL (auditoria)",
+} as const;
+export type Agent = keyof typeof AGENT_LABEL;
+export const AGENTS = Object.keys(AGENT_LABEL) as Agent[];
+
+// Ordem de prioridade do modo ASSISTENTE DE TRABALHO (cloud/office.py, CATEGORIAS).
+export const CATEGORIA_LABEL = {
+  urgente: "Pendência urgente",
+  cliente_retorno: "Cliente aguardando retorno",
+  prazo: "Serviço com prazo próximo",
+  producao: "Problema de produção",
+  instalacao: "Instalação pendente",
+  financeiro: "Cobrança ou vencimento",
+  compra: "Compra necessária",
+  compromisso: "Compromisso",
+  decisao: "Decisão aguardando aprovação",
+  melhoria: "Oportunidade de melhoria",
+} as const;
+export type Categoria = keyof typeof CATEGORIA_LABEL;
+
+export type NovaPendencia = {
+  empresa: string; categoria: Categoria; titulo: string;
+  cliente: string | null; prazo: string | null; detalhe: string | null;
+};
+
+const opt = (v: unknown, max: number) => {
+  if (typeof v !== "string") return null;
+  const t = v.trim();
+  return t ? t.slice(0, max) : null;
+};
+
+export function parseNovaPendencia(form: {
+  empresa: unknown; categoria: unknown; titulo: unknown; cliente: unknown; prazo: unknown; detalhe: unknown;
+}): { ok: true; value: NovaPendencia } | { ok: false; error: string } {
+  const { empresa, categoria, titulo } = form;
+  if (typeof empresa !== "string" || !/^[a-z0-9_-]{1,40}$/.test(empresa)) return { ok: false, error: "Escolha a empresa." };
+  if (typeof categoria !== "string" || !(categoria in CATEGORIA_LABEL)) return { ok: false, error: "Escolha o tipo." };
+  const t = typeof titulo === "string" ? titulo.trim() : "";
+  if (t.length < 3 || t.length > 200) return { ok: false, error: "O título precisa ter de 3 a 200 caracteres." };
+  const prazo = opt(form.prazo, 10);
+  if (prazo && !/^\d{4}-\d{2}-\d{2}$/.test(prazo)) return { ok: false, error: "Prazo inválido." };
+  return {
+    ok: true,
+    value: { empresa, categoria: categoria as Categoria, titulo: t, cliente: opt(form.cliente, 200), prazo, detalhe: opt(form.detalhe, 4000) },
+  };
+}
 export const PROMPT_MIN = 3;
 export const PROMPT_MAX = 6000;
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -13,7 +72,7 @@ export function parseNewJob(
   agent: unknown,
   prompt: unknown,
 ): { ok: true; agent: Agent; prompt: string } | { ok: false; error: string } {
-  if (typeof agent !== "string" || !(AGENTS as readonly string[]).includes(agent))
+  if (typeof agent !== "string" || !(AGENTS as string[]).includes(agent))
     return { ok: false, error: "Perfil inválido." };
   if (typeof prompt !== "string") return { ok: false, error: "Tarefa inválida." };
   const p = prompt.trim();
@@ -34,4 +93,8 @@ export const STATUS_LABEL: Record<string, string> = {
   running: "Executando",
   completed: "Concluída",
   failed: "Falhou",
+  aberta: "Aberta",
+  delegada: "Delegada",
+  concluida: "Concluída",
+  cancelada: "Cancelada",
 };
