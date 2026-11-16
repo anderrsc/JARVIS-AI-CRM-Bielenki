@@ -1,0 +1,26 @@
+services:
+  voice:
+    build: ./voice
+    restart: "on-failure:3"
+    env_file: .env.vps
+    environment:
+      JARVIS_VOICE_DEVICE: cpu
+      VOICE_THREADS: "2"
+    volumes:
+      - ./voice/model:/app/model:ro
+      - ./voice/reference.wav:/app/reference.wav:ro
+      - voice_audio:/app/audio-cache
+    mem_limit: 2300m
+    memswap_limit: 4300m
+    cpus: 2
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    logging:
+      driver: json-file
+      options:
+        max-size: "5m"
+        max-file: "2"
+
+volumes:
+  voice_audio:

@@ -3,6 +3,7 @@ import { getAccess } from "@/lib/auth";
 import Header from "./Header";
 import Forbidden from "./Forbidden";
 import Jarvis from "./Jarvis";
+import { DayPanel, ActivityPanel } from "./CommandPanels";
 
 async function Content() {
   const access = await getAccess();
@@ -10,7 +11,11 @@ async function Content() {
   return (
     <main className="jv-page">
       <Header email={access.email} owner={access.status === "owner"} />
-      <Jarvis nome="senhor" />
+      <div className="jv-workspace">
+        <Suspense fallback={<aside className="hud-column"><p className="muted small">Consultando prioridades…</p></aside>}><DayPanel /></Suspense>
+        <Jarvis nome="senhor" />
+        <Suspense fallback={<aside className="hud-column"><p className="muted small">Consultando equipe…</p></aside>}><ActivityPanel /></Suspense>
+      </div>
     </main>
   );
 }

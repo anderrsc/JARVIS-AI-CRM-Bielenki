@@ -1,0 +1,7 @@
+.venv/
+model/
+audio-cache/
+reference.wav
+*.log
+.env*
+__pycache__/

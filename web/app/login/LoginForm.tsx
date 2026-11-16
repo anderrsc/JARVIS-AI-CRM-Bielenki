@@ -9,7 +9,7 @@ export default function LoginForm() {
       <label>E-mail<input name="email" type="email" autoComplete="email" required /></label>
       <label>Senha<input name="password" type="password" autoComplete="current-password" required /></label>
       {state.error && <p role="alert" className="error">{state.error}</p>}
-      <button disabled={pending}>{pending ? "Entrando…" : "Entrar"}</button>
+      <button disabled={pending}>{pending ? "Entrando…" : "Acessar JARVIS →"}</button>
     </form>
   );
 }

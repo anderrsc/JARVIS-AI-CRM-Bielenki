@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { conversar, executarAcao, verResposta } from "./conversa-actions";
 import { NAO, paraFala, SIM, TEXTO_MAX, type Turno } from "@/lib/conversa";
+import { useJarvisVoice } from "./useJarvisVoice";
 
 type Msg = Turno & { id: string; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" | "acao"; agente?: string; pedido?: string };
 type Estado = "pronto" | "ouvindo" | "pensando" | "falando";
@@ -37,12 +38,10 @@ function carregar(): Msg[] {
   }
 }
 
-function escolherVoz(): SpeechSynthesisVoice | null {
-  const vozes = speechSynthesis.getVoices().filter((v) => v.lang.replace("_", "-").toLowerCase().startsWith("pt-br"));
-  return vozes.find((v) => /daniel|antonio|ricardo|google/i.test(v.name)) ?? vozes[0] ?? null;
-}
-
 export default function Jarvis({ nome }: { nome: string }) {
+  const voice = useJarvisVoice();
+  const { speak, stop: stopVoice, playing: voicePlaying } = voice;
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const [msgs, setMsgs] = useState<Msg[]>([]);
   const [estado, setEstado] = useState<Estado>("pronto");
   const [texto, setTexto] = useState("");
@@ -68,7 +67,6 @@ export default function Jarvis({ nome }: { nome: string }) {
       setMsgs(carregar());
       setSemMic(!RecCtor());
       try { setVoz(localStorage.getItem("jarvis.voz") !== "0"); } catch { /* ok */ }
-      if ("speechSynthesis" in window) speechSynthesis.getVoices();
       const h = new Date().getHours();
       setSaud(h < 12 ? "Bom dia" : h < 18 ? "Boa tarde" : "Boa noite");
       carregado.current = true;
@@ -93,7 +91,7 @@ export default function Jarvis({ nome }: { nome: string }) {
         let s = 0;
         for (const v of buf) s += ((v - 128) / 128) ** 2;
         alvo = Math.min(1, Math.sqrt(s / buf.length) * 4);
-      } else if (typeof speechSynthesis !== "undefined" && speechSynthesis.speaking) {
+      } else if (nucleo.current?.dataset.speaking === "true") {
         alvo = 0.35 + 0.3 * Math.abs(Math.sin(performance.now() / 110)) * Math.random();
       }
       nivel.current += (alvo - nivel.current) * 0.25;
@@ -114,17 +112,10 @@ export default function Jarvis({ nome }: { nome: string }) {
   const atualizar = (id: string, p: Partial<Msg>) => setMsgs((m) => m.map((x) => (x.id === id ? { ...x, ...p } : x)));
 
   const falar = useCallback((t: string, depois?: () => void) => {
-    if (!refs.current.voz || !("speechSynthesis" in window)) { setEstado("pronto"); depois?.(); return; }
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(paraFala(t));
-    u.lang = "pt-BR";
-    const v = escolherVoz();
-    if (v) u.voice = v;
-    u.rate = 1.05;
-    u.onstart = () => setEstado("falando");
-    u.onend = u.onerror = () => { setEstado("pronto"); depois?.(); };
-    speechSynthesis.speak(u);
-  }, []);
+    setEstado("pronto");
+    if (!refs.current.voz) { depois?.(); return; }
+    void speak(paraFala(t), depois);
+  }, [speak]);
 
   const ouvirRef = useRef<() => void>(() => {});
 
@@ -229,7 +220,7 @@ export default function Jarvis({ nome }: { nome: string }) {
   const ouvir = useCallback(async () => {
     const Ctor = RecCtor();
     if (!Ctor) { setSemMic(true); return; }
-    if ("speechSynthesis" in window) speechSynthesis.cancel();
+    stopVoice();
     const r = new Ctor();
     r.lang = "pt-BR";
     r.interimResults = true;
@@ -281,23 +272,21 @@ export default function Jarvis({ nome }: { nome: string }) {
       ctx.createMediaStreamSource(stream).connect(an);
       audio.current = { ctx, stream, an };
     } catch { /* sem medidor */ }
-  }, [pararMic, responder]);
+  }, [pararMic, responder, stopVoice]);
   useEffect(() => { ouvirRef.current = ouvir; }, [ouvir]);
 
   const tocarNucleo = () => {
     setAviso("");
-    // iPhone: a voz só toca depois de nascer de um toque.
-    if (voz && estado === "pronto" && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+    if (voicePlaying || voice.busy) { stopVoice(); return; }
     if (estado === "ouvindo") { rec.current?.stop(); return; }
-    if (estado === "falando") { speechSynthesis.cancel(); setEstado("pronto"); return; }
     if (estado === "pronto") ouvir();
   };
 
   const enviar = (e: React.FormEvent) => {
     e.preventDefault();
     if (estado === "pensando" || !texto.trim()) return;
-    // Destrava a voz no iPhone (precisa nascer de um toque).
-    if (voz && "speechSynthesis" in window) speechSynthesis.speak(new SpeechSynthesisUtterance(""));
+    stopVoice();
+    rec.current?.abort();
     setAviso("");
     responder(texto);
     setTexto("");
@@ -306,15 +295,18 @@ export default function Jarvis({ nome }: { nome: string }) {
   const alternarVoz = () => {
     const v = !voz;
     setVoz(v);
-    if (!v && "speechSynthesis" in window) speechSynthesis.cancel();
+    if (!v) stopVoice();
     try { localStorage.setItem("jarvis.voz", v ? "1" : "0"); } catch { /* ok */ }
   };
 
   const ROTULO: Record<Estado, string> = { pronto: semMic ? "Digite sua mensagem" : "Toque no núcleo para falar", ouvindo: "Ouvindo…", pensando: "Processando…", falando: "Falando… toque para interromper" };
+  const visualState = voicePlaying ? "falando" : estado;
+  const label = voice.busy ? "Preparando a voz… toque para interromper" : ROTULO[visualState];
 
   return (
-    <div className={`jv jv-${estado}${msgs.length ? " jv-compact" : ""}`}>
-      <button type="button" className="jv-core" ref={nucleo} onClick={tocarNucleo} aria-label={ROTULO[estado]} disabled={estado === "pensando"}>
+    <div className={`jv jv-${visualState}${msgs.length ? " jv-compact" : ""}`}>
+      <div className="jv-heading"><span className="eyebrow">INTELIGÊNCIA A SEU SERVIÇO</span><button type="button" className="voice-settings" aria-expanded={voiceOpen} aria-controls="voice-settings" onClick={() => setVoiceOpen(!voiceOpen)}>♫ <span>Voz</span></button></div>
+      <button type="button" className="jv-core" ref={nucleo} data-speaking={voicePlaying} onClick={tocarNucleo} aria-label={label} disabled={estado === "pensando"}>
         <svg viewBox="0 0 200 200" aria-hidden="true">
           <circle className="r r1" cx="100" cy="100" r="92" />
           <circle className="r r2" cx="100" cy="100" r="78" />
@@ -322,16 +314,25 @@ export default function Jarvis({ nome }: { nome: string }) {
           <g className="ticks">{Array.from({ length: 36 }, (_, i) => <line key={i} x1="100" y1="4" x2="100" y2={i % 3 ? 10 : 14} transform={`rotate(${i * 10} 100 100)`} />)}</g>
         </svg>
         <span className="jv-orb" />
+        <span className="jv-core-letter" aria-hidden="true">J</span>
       </button>
-      <p className="jv-status" aria-live="polite">{parcial || ROTULO[estado]}</p>
+      <p className="jv-status" aria-live="polite"><span className="status-dot" />{parcial || label}</p>
       {aviso && estado === "pronto" && <p className="jv-aviso small" role="alert">{aviso}</p>}
+      <div id="voice-settings" className="voice-panel" hidden={!voiceOpen}>
+        <div><strong>A voz do seu JARVIS</strong><p className="muted small">Português brasileiro · Referência original</p></div>
+        <button type="button" className="secondary" onClick={() => { rec.current?.abort(); voice.preview(); }}>Ouvir amostra</button>
+        <p className="muted small">A síntese própria usa sua amostra para aproximar o timbre. As respostas são faladas quando o serviço de voz está conectado.</p>
+      </div>
+      {voice.error && <p className="jv-aviso small" role="alert">{voice.error}</p>}
+      <audio ref={voice.player} controls hidden={!voice.source} className="voice-player" preload="none" onPlay={() => voice.setPlaying(true)} onPause={() => voice.setPlaying(false)} />
 
       <div className="jv-log" role="log" aria-live="polite">
         {msgs.length === 0 && (
-          <p className="muted jv-hint">{saud}, {nome}. Pergunte, por exemplo: “o que tenho hoje?”, “quais cobranças estão atrasadas?”, “instalações pendentes”.</p>
+          <div className="jv-welcome"><span className="eyebrow">{saud}, {nome}.</span><h1>O que vamos<br /><em>resolver hoje?</em></h1><p className="muted">Fale naturalmente. Eu cuido de conectar os pontos.</p><div className="jv-suggestions">{[["◷", "Meu dia", "O que tenho hoje?"], ["↗", "Financeiro", "Quais cobranças estão atrasadas?"], ["▦", "Instalações", "Quais instalações estão pendentes?"]].map(([icon, title, question]) => <button type="button" key={title} onClick={() => { stopVoice(); void responder(question); }}><span aria-hidden="true">{icon}</span><strong>{title}</strong><span aria-hidden="true">↗</span></button>)}</div></div>
         )}
         {msgs.map((m) => (
           <div key={m.id} className={`jv-msg ${m.de} ${m.status ? "st-" + m.status : ""}`}>
+            <span className="msg-author">{m.de === "eu" ? "Você" : "JARVIS"}</span>
             {m.status === "pensando" && !m.texto ? <span className="dots"><i /><i /><i /></span> : m.texto}
             {m.pedido && pendente?.msg === m.id && (
               <span className="jv-acao">
@@ -345,19 +346,21 @@ export default function Jarvis({ nome }: { nome: string }) {
                 {m.tarefa && <> · <Link href={`/jobs/${m.tarefa}`}>tarefa</Link></>}
               </small>
             )}
+            {m.de === "jarvis" && m.texto && m.status !== "pensando" && <button type="button" className="replay-voice" onClick={() => { rec.current?.abort(); void speak(m.texto); }}>♫ Ouvir resposta</button>}
           </div>
         ))}
         <div ref={fim} />
       </div>
 
       <form className="jv-input" onSubmit={enviar}>
-        <input value={texto} onChange={(e) => setTexto(e.target.value)} maxLength={TEXTO_MAX} placeholder="Fale ou digite…" aria-label="Mensagem para o JARVIS" enterKeyHint="send" />
-        <button disabled={estado === "pensando" || !texto.trim()}>Enviar</button>
+        <button type="button" className="mic-button" onClick={tocarNucleo} disabled={estado === "pensando" || semMic} aria-label={label}><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="2" width="6" height="12" rx="3"/><path d="M5 10v2a7 7 0 0 0 14 0v-2M12 19v3M8 22h8"/></svg></button>
+        <input value={texto} onChange={(e) => setTexto(e.target.value)} maxLength={TEXTO_MAX} placeholder="Peça algo ao JARVIS…" aria-label="Mensagem para o JARVIS" enterKeyHint="send" />
+        <button className="send-button" aria-label="Enviar mensagem" disabled={estado === "pensando" || !texto.trim()}>↑</button>
       </form>
       <div className="jv-opts small">
         <label><input type="checkbox" checked={voz} onChange={alternarVoz} /> Respostas faladas</label>
         {!semMic && <label><input type="checkbox" checked={maosLivres} onChange={(e) => setMaosLivres(e.target.checked)} /> Mãos livres</label>}
-        <button type="button" className="link" onClick={() => { setMsgs([]); if ("speechSynthesis" in window) speechSynthesis.cancel(); }}>Limpar conversa</button>
+        <button type="button" className="link" disabled={estado === "pensando"} onClick={() => { stopVoice(); rec.current?.abort(); setMsgs([]); setPendente(null); pendenteRef.current = null; setMaosLivres(false); }}>Limpar conversa</button>
       </div>
       {semMic && <p className="muted small">Reconhecimento de voz indisponível neste navegador; use Chrome, Edge ou Safari e permita o microfone.</p>}
     </div>

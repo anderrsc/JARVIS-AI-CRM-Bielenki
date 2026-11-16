@@ -29,7 +29,7 @@ async function Content() {
   return (
     <main className="wide">
       <Header email={access.email} owner={access.status === "owner"} />
-      <h1>Escritório</h1>
+      <div className="office-heading"><div><span className="eyebrow">CENTRO DE OPERAÇÕES</span><h1>Seu escritório digital</h1><p className="muted small">A equipe, as prioridades e o trabalho acontecendo.</p></div><Link href="/tarefas" className="office-task-link">Acompanhar tarefas ↗</Link></div>
       {erro && <p role="alert" className="error">{erro.reason instanceof JarvisError ? erro.reason.message : "Parte dos dados não carregou."}</p>}
       <div className="office">
         {[...deps.entries()].map(([dep, membros]) => (
@@ -44,6 +44,7 @@ async function Content() {
               const st = rodando ? "trabalhando" : fila ? "na fila" : "disponível";
               return (
                 <article key={a.chave} className={`emp ${rodando ? "on" : fila ? "wait" : ""}`}>
+                  <div className="agent-station" aria-hidden="true"><div className="agent-screen"><span /> <span /> <span /></div><span className="agent-avatar">{a.nome.slice(0, 1)}</span><div className="agent-desk" /></div>
                   <div className="emp-head"><span className="led" aria-hidden="true" /><strong>{a.nome}</strong></div>
                   <p className="small muted">{st}{fila ? ` · ${fila} na fila` : ""}</p>
                   <p className="small">{pend.get(a.chave) ?? 0} pendência(s) · {feitas} tarefa(s) concluída(s)</p>
