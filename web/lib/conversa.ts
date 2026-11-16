@@ -25,10 +25,35 @@ const TEMAS: [Categoria[], RegExp, string][] = [
 ];
 const GERAL = /\b(pendenc|hoje|agenda|atrasad|resumo|briefing|prioridad|o que (eu )?tenho|como (esta|estao|anda)|bom dia|boa tarde|boa noite|situacao)/;
 
-export type Intencao = { tipo: "pendencias"; categorias: Categoria[] | null; tema: string } | { tipo: "ia" };
+export type Intencao =
+  | { tipo: "pendencias"; categorias: Categoria[] | null; tema: string }
+  | { tipo: "delegar"; categorias: Categoria[] | null; tema: string; atrasadas: boolean }
+  | { tipo: "anotar"; titulo: string; categoria: Categoria; prazo: "hoje" | "amanha" | null }
+  | { tipo: "plano" }
+  | { tipo: "ia" };
+
+// Ações (mudam algo) sempre passam por confirmação antes de executar.
+export const precisaConfirmar = (i: Intencao) => i.tipo === "delegar" || i.tipo === "anotar";
+
+const ANOTAR = /^(?:jarvis[,\s]+)?(?:anote|anota|anotar|lembre-me de|lembre-me|me lembre de|me lembra de|lembrar de|crie uma (?:tarefa|pendencia)|criar (?:tarefa|pendencia)|nova (?:tarefa|pendencia))\s*(?:que|de|:|,)?\s*/i;
 
 export function intencao(texto: string): Intencao {
   const t = sem(texto);
+  if (/\b(plano do dia|plano de hoje|planej\w* (o |meu )?dia|organiz\w* (o |meu )?dia|monte (o|um) plano)/.test(t)) return { tipo: "plano" };
+  const an = t.replace(/^\s+/, "").match(ANOTAR);
+  if (an) {
+    const titulo = texto.trim().slice(an[0].length).replace(/[.!]+$/, "").trim();
+    if (titulo.length >= 3) {
+      const tt = sem(titulo);
+      return { tipo: "anotar", titulo: titulo.charAt(0).toUpperCase() + titulo.slice(1, 200),
+        categoria: /\burgen/.test(tt) ? "urgente" : "compromisso",
+        prazo: /\bamanha\b/.test(tt) ? "amanha" : /\bhoje\b/.test(tt) ? "hoje" : null };
+    }
+  }
+  if (/\b(deleg\w*|encaminh\w*|distribu\w*)\b/.test(t)) {
+    const tema = TEMAS.find(([, re]) => re.test(t));
+    return { tipo: "delegar", categorias: tema ? tema[0] : null, tema: tema ? tema[2] : "pendências", atrasadas: /atrasad|vencid/.test(t) };
+  }
   for (const [cats, re, tema] of TEMAS) if (re.test(t)) return { tipo: "pendencias", categorias: cats, tema };
   if (GERAL.test(t)) return { tipo: "pendencias", categorias: null, tema: "pendências" };
   return { tipo: "ia" };
@@ -81,3 +106,25 @@ export function paraFala(texto: string, max = 600): string {
   const t = texto.replace(/[•*#_`>]/g, " ").replace(/\s*\n+\s*/g, ". ").replace(/\.\s*\./g, ".").replace(/\s{2,}/g, " ").trim();
   return t.length > max ? t.slice(0, max).replace(/\s\S*$/, "") + ". O restante está na tela." : t;
 }
+
+type ItemAcao = Item & { id: string; status?: string; agente: string; prazo?: string | null };
+export const DELEGAR_MAX = 5;
+
+/** Itens que a ação de delegar vai tocar: abertos (não delegados), na ordem de prioridade. */
+export function alvosDelegar(b: { empresas: { itens: ItemAcao[] }[] }, it: Extract<Intencao, { tipo: "delegar" }>): ItemAcao[] {
+  return b.empresas.flatMap((e) => e.itens)
+    .filter((i) => i.status !== "delegada" && i.status !== "concluida" && i.status !== "cancelada")
+    .filter((i) => !it.categorias || it.categorias.includes(i.categoria as Categoria))
+    .filter((i) => !it.atrasadas || (typeof i.dias === "number" && i.dias < 0))
+    .slice(0, DELEGAR_MAX);
+}
+
+/** Data ISO (fuso de Brasília) para "hoje"/"amanhã". */
+export function prazoIso(p: "hoje" | "amanha" | null, agora = new Date()): string | null {
+  if (!p) return null;
+  const brt = new Date(agora.getTime() - 3 * 3600_000 + (p === "amanha" ? 86400_000 : 0));
+  return brt.toISOString().slice(0, 10);
+}
+
+export const SIM = /^(sim|confirm\w*|pode( fazer| seguir| ir)?|ok|okay|isso|manda ver|faca|faça|executa\w*)\b/i;
+export const NAO = /^(nao|não|cancel\w*|para|pare|deixa|esquece)\b/i;

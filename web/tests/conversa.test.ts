@@ -45,3 +45,26 @@ test("prompt curto com histórico limitado e fala limpa", () => {
   assert.equal(paraFala("• A\n• B"), "A. B");
   assert.match(paraFala("palavra ".repeat(200), 50), /O restante está na tela\.$/);
 });
+
+import { alvosDelegar, prazoIso, precisaConfirmar, SIM, NAO } from "../lib/conversa.ts";
+
+test("ações: plano, anotar e delegar exigem confirmação certa", () => {
+  assert.deepEqual(intencao("Monte o plano do dia"), { tipo: "plano" });
+  const a = intencao("Jarvis, anote: ligar para o fornecedor de vidro amanhã");
+  assert.equal(a.tipo, "anotar");
+  assert.equal((a as { titulo: string }).titulo, "Ligar para o fornecedor de vidro amanhã");
+  assert.equal((a as { prazo: string }).prazo, "amanha");
+  assert.equal(precisaConfirmar(a), true);
+  const d = intencao("delegue as cobranças atrasadas ao financeiro");
+  assert.deepEqual(d, { tipo: "delegar", categorias: ["financeiro"], tema: "cobranças e vencimentos", atrasadas: true });
+  assert.equal(precisaConfirmar(intencao("o que tenho hoje?")), false);
+  assert.ok(SIM.test("sim, pode") && NAO.test("cancela") && !SIM.test("simulação"));
+});
+
+test("delegar ignora já delegados e limita a quantidade", () => {
+  const itens = Array.from({ length: 9 }, (_, i) => ({ id: `x${i}`, titulo: `T${i}`, categoria: "financeiro", cliente: null, dias: i < 7 ? -1 : 2, agente: "financeiro", status: i === 0 ? "delegada" : "crm" }));
+  const alvo = alvosDelegar({ empresas: [{ itens }] }, { tipo: "delegar", categorias: ["financeiro"], tema: "x", atrasadas: true });
+  assert.deepEqual(alvo.map((i) => i.id), ["x1", "x2", "x3", "x4", "x5"]);
+  assert.equal(prazoIso("amanha", new Date("2026-11-16T01:00:00Z")), "2026-11-16");
+  assert.equal(prazoIso("hoje", new Date("2026-11-16T01:00:00Z")), "2026-11-15");
+});

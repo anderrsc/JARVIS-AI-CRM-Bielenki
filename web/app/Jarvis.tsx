@@ -1,10 +1,10 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
-import { conversar, verResposta } from "./conversa-actions";
-import { paraFala, TEXTO_MAX, type Turno } from "@/lib/conversa";
+import { conversar, executarAcao, verResposta } from "./conversa-actions";
+import { NAO, paraFala, SIM, TEXTO_MAX, type Turno } from "@/lib/conversa";
 
-type Msg = Turno & { id: string; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" };
+type Msg = Turno & { id: string; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" | "acao"; agente?: string; pedido?: string };
 type Estado = "pronto" | "ouvindo" | "pensando" | "falando";
 
 // Web Speech API (Chrome, Edge, Safari). Tipos mínimos para não depender de lib externa.
@@ -127,9 +127,60 @@ export default function Jarvis({ nome }: { nome: string }) {
 
   const ouvirRef = useRef<() => void>(() => {});
 
+  // Mãos livres no celular: mantém a tela acesa enquanto a conversa estiver ativa.
+  useEffect(() => {
+    if (!maosLivres) return;
+    type Lock = { release(): Promise<void> };
+    const nav = navigator as Navigator & { wakeLock?: { request(t: "screen"): Promise<Lock> } };
+    let lock: Lock | null = null;
+    const pedir = () => { if (document.visibilityState === "visible") nav.wakeLock?.request("screen").then((l) => { lock = l; }, () => {}); };
+    pedir();
+    document.addEventListener("visibilitychange", pedir);
+    return () => { document.removeEventListener("visibilitychange", pedir); lock?.release().catch(() => {}); };
+  }, [maosLivres]);
+  // Ação aguardando confirmação: o pedido original é reenviado e recalculado no servidor.
+  const [pendente, setPendente] = useState<{ pedido: string; msg: string } | null>(null);
+  const pendenteRef = useRef(pendente);
+  useEffect(() => { pendenteRef.current = pendente; }, [pendente]);
+  const executando = useRef(false);
+
+  const resolverAcao = useCallback(async (confirma: boolean) => {
+    const p = pendenteRef.current;
+    if (!p || executando.current) return;
+    setPendente(null);
+    pendenteRef.current = null;
+    atualizar(p.msg, { pedido: undefined });
+    const continuar = () => { if (refs.current.maosLivres) setTimeout(() => ouvirRef.current(), 400); };
+    if (!confirma) {
+      setMsgs((m) => [...m, { id: nid(), de: "jarvis", texto: "Cancelado. Nada foi feito.", status: "ok" }]);
+      falar("Cancelado. Nada foi feito.", continuar);
+      return;
+    }
+    executando.current = true;
+    const rid = nid();
+    setMsgs((m) => [...m, { id: rid, de: "jarvis", texto: "", status: "pensando" }]);
+    setEstado("pensando");
+    const r = await executarAcao(p.pedido).catch(() => ({ tipo: "erro", texto: "Sem conexão com o servidor. Nada foi confirmado." }) as const);
+    executando.current = false;
+    const texto = r.tipo === "texto" || r.tipo === "erro" ? r.texto : "Resposta inesperada. Confira em Hoje antes de repetir.";
+    atualizar(rid, { texto, status: r.tipo === "texto" ? "ok" : "erro", fonte: "acao" });
+    falar(texto, continuar);
+  }, [falar]);
+
   const responder = useCallback(async (pergunta: string) => {
     const q = pergunta.trim().slice(0, TEXTO_MAX);
     if (q.length < 2) return;
+    if (pendenteRef.current) {
+      const resp = q.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+      if (SIM.test(resp) || NAO.test(resp)) {
+        setMsgs((m) => [...m, { id: nid(), de: "eu", texto: q }]);
+        void resolverAcao(SIM.test(resp));
+        return;
+      }
+      atualizar(pendenteRef.current.msg, { pedido: undefined });
+      setPendente(null);
+      pendenteRef.current = null;
+    }
     const historico = refs.current.msgs.slice(-6).map(({ de, texto }) => ({ de, texto }));
     const rid = nid();
     setMsgs((m) => [...m, { id: nid(), de: "eu", texto: q }, { id: rid, de: "jarvis", texto: "", status: "pensando" }]);
@@ -147,7 +198,13 @@ export default function Jarvis({ nome }: { nome: string }) {
       falar(r.texto, continuar);
       return;
     }
-    atualizar(rid, { tarefa: r.id, fonte: "ia" });
+    if (r.tipo === "confirmar") {
+      atualizar(rid, { texto: r.texto, status: "ok", fonte: "acao", pedido: q });
+      setPendente({ pedido: q, msg: rid });
+      falar(r.texto, continuar);
+      return;
+    }
+    atualizar(rid, { tarefa: r.id, fonte: "ia", agente: r.agente });
     for (let i = 0; i < POLL_MAX; i++) {
       await new Promise((ok) => setTimeout(ok, POLL_MS));
       const s = await verResposta(r.id).catch(() => null);
@@ -166,7 +223,7 @@ export default function Jarvis({ nome }: { nome: string }) {
     }
     atualizar(rid, { texto: "Ainda estou processando. A resposta vai aparecer em Tarefas.", status: "erro" });
     setEstado("pronto");
-  }, [falar]);
+  }, [falar, resolverAcao]);
 
   const ouvir = useCallback(async () => {
     const Ctor = RecCtor();
@@ -238,7 +295,7 @@ export default function Jarvis({ nome }: { nome: string }) {
   const ROTULO: Record<Estado, string> = { pronto: semMic ? "Digite sua mensagem" : "Toque no núcleo para falar", ouvindo: "Ouvindo…", pensando: "Processando…", falando: "Falando… toque para interromper" };
 
   return (
-    <div className={`jv jv-${estado}`}>
+    <div className={`jv jv-${estado}${msgs.length ? " jv-compact" : ""}`}>
       <button type="button" className="jv-core" ref={nucleo} onClick={tocarNucleo} aria-label={ROTULO[estado]} disabled={estado === "pensando"}>
         <svg viewBox="0 0 200 200" aria-hidden="true">
           <circle className="r r1" cx="100" cy="100" r="92" />
@@ -257,9 +314,15 @@ export default function Jarvis({ nome }: { nome: string }) {
         {msgs.map((m) => (
           <div key={m.id} className={`jv-msg ${m.de} ${m.status ? "st-" + m.status : ""}`}>
             {m.status === "pensando" && !m.texto ? <span className="dots"><i /><i /><i /></span> : m.texto}
+            {m.pedido && pendente?.msg === m.id && (
+              <span className="jv-acao">
+                <button type="button" onClick={() => resolverAcao(true)}>Confirmar</button>
+                <button type="button" className="secondary" onClick={() => resolverAcao(false)}>Cancelar</button>
+              </span>
+            )}
             {m.de === "jarvis" && (m.fonte || m.tarefa) && (
               <small className="muted">
-                {m.fonte === "dados" ? "dados do CRM/cadastro" : "resposta do agente"}
+                {m.fonte === "dados" ? "dados do CRM/cadastro" : m.fonte === "acao" ? "ação do JARVIS" : `resposta do ${m.agente ?? "agente JARVIS"}`}
                 {m.tarefa && <> · <Link href={`/jobs/${m.tarefa}`}>tarefa</Link></>}
               </small>
             )}
