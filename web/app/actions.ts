@@ -20,7 +20,7 @@ export async function submitJob(_: FormState, form: FormData): Promise<FormState
   } catch (e) {
     return { error: e instanceof JarvisError ? e.message : "Erro inesperado." };
   }
-  revalidatePath("/");
+  revalidatePath("/tarefas");
   redirect(`/jobs/${id}`);
 }
 

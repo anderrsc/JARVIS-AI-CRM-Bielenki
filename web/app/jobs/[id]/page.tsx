@@ -26,7 +26,7 @@ async function Content({ params }: { params: Promise<{ id: string }> }) {
   return (
     <main>
       <Header email={access.email} owner={access.status === "owner"} />
-      <p><Link href="/">← Voltar</Link></p>
+      <p><Link href="/tarefas">← Tarefas</Link></p>
       <section className="card stack">
         {error && <p role="alert" className="error">{error}</p>}
         {job && (
