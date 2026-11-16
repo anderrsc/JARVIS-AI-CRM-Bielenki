@@ -3,7 +3,7 @@ import type { Agent, Categoria, NovaPendencia } from "@/lib/validate";
 
 // Somente servidor: JARVIS_USER_KEY nunca vai ao navegador. Endpoints /worker não são usados aqui.
 export type JobSummary = { id: string; agent: Agent; status: string; created_at: number; attempts: number };
-export type Job = JobSummary & { result: string | null };
+export type Job = JobSummary & { result: string | null; empresa?: string | null; contexto?: string | null };
 
 export class JarvisError extends Error {}
 
@@ -34,8 +34,8 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const listJobs = () => call<{ jobs: JobSummary[] }>("/jobs").then((r) => r.jobs);
 export const getJob = (id: string) => call<Job>(`/jobs/${encodeURIComponent(id)}`);
-export const createJob = (agent: Agent, prompt: string) =>
-  call<{ id: string; status: string }>("/jobs", { method: "POST", body: JSON.stringify({ agent, prompt }) });
+export const createJob = (agent: Agent, prompt: string, empresa?: string | null) =>
+  call<{ id: string; status: string }>("/jobs", { method: "POST", body: JSON.stringify({ agent, prompt, empresa: empresa || null }) });
 
 // ---- Escritório: pendências e briefing do dia ----
 export type Pendencia = {
@@ -60,3 +60,17 @@ export const delegarPendencia = (id: string) =>
 export const pedirPlano = () => call<{ id: string }>("/hoje/plano", { method: "POST" });
 export const delegarCrm = (id: string) =>
   call<{ job_id: string; agente: Agent }>("/crm/delegar", { method: "POST", body: JSON.stringify({ id }) });
+
+// ---- Central de Conhecimento ----
+export type Regra = {
+  id: string; empresa: string; assunto: string; texto: string; estado: string; fonte: string | null;
+  versao: number; anterior_id: string | null; created_at: number; updated_at: number; confirmado_em: number | null;
+};
+export const listRegras = (empresa: string) =>
+  call<{ regras: Regra[]; assuntos: Record<string, string> }>(`/conhecimento?empresa=${encodeURIComponent(empresa)}`);
+export const createRegra = (r: { empresa: string; assunto: string; texto: string; estado: string; fonte: string | null }) =>
+  call<{ regra: Regra; semelhantes: Regra[] }>("/conhecimento", { method: "POST", body: JSON.stringify(r) });
+export const regraAcao = (id: string, acao: "confirmar" | "arquivar") =>
+  call<Regra>(`/conhecimento/${encodeURIComponent(id)}/${acao}`, { method: "POST" });
+export const editarRegra = (id: string, texto: string) =>
+  call<Regra>(`/conhecimento/${encodeURIComponent(id)}/editar`, { method: "POST", body: JSON.stringify({ texto }) });

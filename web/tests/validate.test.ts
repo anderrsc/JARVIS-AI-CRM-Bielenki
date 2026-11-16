@@ -46,3 +46,12 @@ test("isCrmItemId", async () => {
   assert.equal(isCrmItemId("crm:orcamento:../../x"), false);
   assert.equal(isCrmItemId("11111111-2222-3333-4444-555555555555"), false);
 });
+
+test("parseNovaRegra", async () => {
+  const { parseNovaRegra } = await import("../lib/validate.ts");
+  const ok = parseNovaRegra({ empresa: "marquinhos", assunto: "medicao", texto: " Conferir medidas ", estado: "confirmada", fonte: "" });
+  assert.equal(ok.ok, true);
+  if (ok.ok) assert.equal(ok.value.estado, "provisoria"); // o painel nunca cria regra já confirmada
+  assert.equal(parseNovaRegra({ empresa: "x/y", assunto: "medicao", texto: "abcdef", estado: "", fonte: null }).ok, false);
+  assert.equal(parseNovaRegra({ empresa: "marquinhos", assunto: "medicao", texto: "abc", estado: "", fonte: null }).ok, false);
+});

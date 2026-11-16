@@ -104,3 +104,16 @@ export const STATUS_LABEL: Record<string, string> = {
 export function isCrmItemId(v: unknown): v is string {
   return typeof v === "string" && /^crm:[a-z_]+:[0-9a-f-]{36}$/i.test(v) && isUuid(v.slice(v.lastIndexOf(":") + 1));
 }
+
+export const ESTADO_REGRA_LABEL: Record<string, string> = {
+  provisoria: "Provisória", hipotese: "Hipótese", sugestao: "Sugestão", confirmada: "Confirmada",
+};
+export function parseNovaRegra(f: { empresa: unknown; assunto: unknown; texto: unknown; estado: unknown; fonte: unknown }):
+  { ok: true; value: { empresa: string; assunto: string; texto: string; estado: string; fonte: string | null } } | { ok: false; error: string } {
+  if (typeof f.empresa !== "string" || !/^[a-z0-9_-]{1,40}$/.test(f.empresa)) return { ok: false, error: "Empresa inválida." };
+  if (typeof f.assunto !== "string" || !/^[a-z_]{1,30}$/.test(f.assunto)) return { ok: false, error: "Escolha o assunto." };
+  const texto = typeof f.texto === "string" ? f.texto.trim() : "";
+  if (texto.length < 5 || texto.length > 1000) return { ok: false, error: "A regra precisa ter de 5 a 1000 caracteres." };
+  const estado = typeof f.estado === "string" && ["provisoria", "hipotese", "sugestao"].includes(f.estado) ? f.estado : "provisoria";
+  return { ok: true, value: { empresa: f.empresa, assunto: f.assunto, texto, estado, fonte: opt(f.fonte, 200) } };
+}
