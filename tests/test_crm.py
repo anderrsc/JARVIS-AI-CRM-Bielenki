@@ -96,3 +96,19 @@ def test_lia_crm_fora_do_ar(client, monkeypatch, crm_on):
     def boom(*a, **k): raise crm.CrmError('CRM indisponível')
     monkeypatch.setattr(crm, '_post', boom)
     assert client.get('/crm/lia', headers=U).status_code == 503
+
+
+def test_erro_de_negocio_do_crm_e_mostrado(monkeypatch):
+    import io, urllib.error
+    monkeypatch.setattr(crm, 'URL', 'https://crm.supabase.co')
+    def boom(req, timeout=10):
+        raise urllib.error.HTTPError(req.full_url, 400, 'bad', {}, io.BytesIO(b'{"code":"P0001","message":"Cliente n\\u00e3o encontrado"}'))
+    monkeypatch.setattr(crm.urllib.request, 'urlopen', boom)
+    with pytest.raises(crm.CrmRecusa, match='Cliente não encontrado'):
+        crm._post('/rest/v1/rpc/x', {})
+    def boom500(req, timeout=10):
+        raise urllib.error.HTTPError(req.full_url, 500, 'bad', {}, io.BytesIO(b'{"code":"XX000","message":"relation x"}'))
+    monkeypatch.setattr(crm.urllib.request, 'urlopen', boom500)
+    with pytest.raises(crm.CrmError) as e:
+        crm._post('/rest/v1/rpc/x', {})
+    assert not isinstance(e.value, crm.CrmRecusa) and 'relation' not in str(e.value)

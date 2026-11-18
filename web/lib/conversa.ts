@@ -32,18 +32,100 @@ export type Intencao =
   | { tipo: "plano" }
   | { tipo: "saudacao" }
   | { tipo: "lia" }
+  | { tipo: "medicao"; cliente: string | null }
   | { tipo: "ia" };
 
 // Ações (mudam algo) sempre passam por confirmação antes de executar.
-export const precisaConfirmar = (i: Intencao) => i.tipo === "delegar" || i.tipo === "anotar";
+export const precisaConfirmar = (i: Intencao) => i.tipo === "delegar" || i.tipo === "anotar" || i.tipo === "medicao";
 
 const ANOTAR = /^(?:jarvis[,\s]+)?(?:anote|anota|anotar|lembre-me de|lembre-me|me lembre de|me lembra de|lembrar de|crie uma (?:tarefa|pendencia)|criar (?:tarefa|pendencia)|nova (?:tarefa|pendencia))\s*(?:que|de|:|,)?\s*/i;
+
+// ---- Agendar medição no CRM ----
+const MEDICAO = /\b(agend\w*|marc\w*|program\w*)\b.{0,25}\bmedi(cao|coes|r)\b/;
+const DIAS = ["domingo", "segunda", "terca", "quarta", "quinta", "sexta", "sabado"];
+// Onde termina o nome do cliente: data, hora ou pontuação.
+const FIM_NOME = new RegExp(String.raw`\s*(?:,|\.|;|\s(?:(?:no|na|para|pra|em|de|do|da|as|a)\s+)?(?:hoje|amanha|depois de amanha|${DIAS.join("|")}|dia\s+\d{1,2}|\d{1,2}\/\d{1,2}|\d{1,2}(?::\d{2}|h|\s*horas?)|meio[- ]dia)\b)`);
+
+/** Nome do cliente dito no pedido ("agendar medição para Maria Souza amanhã às 14h" → "Maria Souza"). */
+export function clienteMedicao(texto: string): string | null {
+  const orig = texto.normalize("NFC");
+  const t = sem(orig);
+  const m = t.match(/\bmedi(?:cao|coes|r)\b\s*(?:(?:para|pra|pro|com|do|da|de|no|na)\s+)?(?:(?:o|a)\s+)?(?:(?:cliente|senhor|senhora|sr\.?|sra\.?)\s+)?/);
+  if (!m || m.index === undefined) return null;
+  const ini = m.index + m[0].length;
+  const resto = t.slice(ini);
+  const fim = resto.match(FIM_NOME);
+  const nome = orig.slice(ini, ini + (fim?.index ?? resto.length)).replace(/\s+(?:no|na|para|pra|em|de|do|da)$/i, "").trim();
+  return nome.length >= 2 && !/^(hoje|amanh)/i.test(sem(nome)) ? nome.slice(0, 80) : null;
+}
+
+export type Quando = { iso: string; rotulo: string } | { falta: "data" | "hora" | "passado" };
+
+/** Data e hora da medição no fuso de Brasília (-03:00). Só aceita o que foi dito; não inventa horário. */
+export function quandoMedicao(texto: string, agora = new Date()): Quando {
+  const t = sem(texto);
+  const hojeBrt = new Date(agora.getTime() - 3 * 3600_000);
+  const base = Date.UTC(hojeBrt.getUTCFullYear(), hojeBrt.getUTCMonth(), hojeBrt.getUTCDate());
+  let dia: number | null = null;
+  const dm = t.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  const dd = t.match(/\bdia\s+(\d{1,2})\b/);
+  const ds = DIAS.findIndex((d) => new RegExp(`\\b${d}\\b`).test(t));
+  if (/\bdepois de amanha\b/.test(t)) dia = base + 2 * 86400_000;
+  else if (/\bamanha\b/.test(t)) dia = base + 86400_000;
+  else if (/\bhoje\b/.test(t)) dia = base;
+  else if (dm) {
+    const ano = dm[3] ? (dm[3].length === 2 ? 2000 + Number(dm[3]) : Number(dm[3])) : hojeBrt.getUTCFullYear();
+    dia = Date.UTC(ano, Number(dm[2]) - 1, Number(dm[1]));
+    if (!dm[3] && dia < base) dia = Date.UTC(ano + 1, Number(dm[2]) - 1, Number(dm[1]));
+    if (new Date(dia).getUTCDate() !== Number(dm[1])) dia = null;
+  } else if (dd) {
+    const n = Number(dd[1]);
+    dia = Date.UTC(hojeBrt.getUTCFullYear(), hojeBrt.getUTCMonth(), n);
+    if (dia < base) dia = Date.UTC(hojeBrt.getUTCFullYear(), hojeBrt.getUTCMonth() + 1, n);
+    if (new Date(dia).getUTCDate() !== n) dia = null;
+  } else if (ds >= 0) {
+    const diff = ((ds - hojeBrt.getUTCDay() + 7) % 7) || 7;
+    dia = base + diff * 86400_000;
+  }
+  if (dia === null) return { falta: "data" };
+  let h: number | null = null, min = 0;
+  const hm = t.match(/\b(\d{1,2})(?::(\d{2})|h(\d{2})?|\s*(?:horas?|hs)\b)/) ?? t.match(/\bas\s+(\d{1,2})\b/);
+  if (/\bmeio[- ]dia\b/.test(t)) h = 12;
+  else if (hm) { h = Number(hm[1]); min = Number(hm[2] ?? hm[3] ?? 0); }
+  if (h === null) return { falta: "hora" };
+  if (h < 12 && /\b(da tarde|da noite)\b/.test(t)) h += 12;
+  if (h > 23 || min > 59) return { falta: "hora" };
+  const ms = dia + (h * 60 + min) * 60_000;
+  if (ms + 3 * 3600_000 < agora.getTime()) return { falta: "passado" };
+  const d = new Date(ms);
+  const p2 = (n: number) => String(n).padStart(2, "0");
+  const iso = `${d.getUTCFullYear()}-${p2(d.getUTCMonth() + 1)}-${p2(d.getUTCDate())}T${p2(h)}:${p2(min)}:00-03:00`;
+  const sem3 = ["dom", "seg", "ter", "qua", "qui", "sex", "sáb"][d.getUTCDay()];
+  return { iso, rotulo: `${sem3}, ${p2(d.getUTCDate())}/${p2(d.getUTCMonth() + 1)} às ${p2(h)}:${p2(min)}` };
+}
+
+type ClienteLike = { id: string; nome: string; endereco: string | null };
+/** Escolhe o cliente: nome igual (sem acento) ou resultado único. Senão, devolve as opções para a pessoa escolher. */
+export function escolherCliente<T extends ClienteLike>(nome: string, lista: T[]): { cliente: T } | { opcoes: T[] } {
+  const igual = lista.filter((c) => sem(c.nome).trim() === sem(nome).trim());
+  if (igual.length === 1) return { cliente: igual[0] };
+  if (lista.length === 1) return { cliente: lista[0] };
+  return { opcoes: lista };
+}
+
+export const FALTA_MEDICAO: Record<"cliente" | "data" | "hora" | "passado", string> = {
+  cliente: "Para quem é a medição? Diga, por exemplo: agendar medição para Maria Souza amanhã às 14h.",
+  data: "Para qual dia? Pode ser hoje, amanhã, um dia da semana ou uma data como 20/11.",
+  hora: "Em qual horário? Por exemplo: às 14h.",
+  passado: "Esse horário já passou. Diga um dia e horário futuros.",
+};
 
 export function intencao(texto: string): Intencao {
   const t = sem(texto);
   // Só o chamado ("Jarvis", "oi", "tudo bem?"): responde na hora, sem acionar a IA.
   if (/^\s*(?:(?:oi|ola|e ai|ei|hey|alo|tudo bem|como vai|jarvis|ta ai|esta ai|voce esta ai|pode falar)[\s,.!?]*)+$/.test(t)) return { tipo: "saudacao" };
   if (/\b(plano do dia|plano de hoje|planej\w* (o |meu )?dia|organiz\w* (o |meu )?dia|monte (o|um) plano)/.test(t)) return { tipo: "plano" };
+  if (MEDICAO.test(t)) return { tipo: "medicao", cliente: clienteMedicao(texto) };
   const an = t.replace(/^\s+/, "").match(ANOTAR);
   if (an) {
     const titulo = texto.trim().slice(an[0].length).replace(/[.!]+$/, "").trim();

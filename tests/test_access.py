@@ -110,3 +110,34 @@ def test_lia_exige_modulo_atendimento(client, crm_on, monkeypatch):
     assert client.get('/crm/lia', headers=M).status_code == 403
     membro(client, {'marquinhos': ['hoje', 'atendimento']})
     assert client.get('/crm/lia', headers=M).status_code == 200
+
+
+def test_agenda_exige_modulo_e_nao_duplica(client, crm_on, monkeypatch):
+    chamadas = []
+    monkeypatch.setattr(crm, 'buscar_clientes', lambda q: [{'id': RID, 'nome': 'Maria', 'telefone': None, 'endereco': None}])
+    def fake_agendar(pedido, cid, quando, obs):
+        chamadas.append(pedido)
+        return {'id': RID, 'cliente_id': cid, 'cliente': 'Maria', 'quando': quando, 'ja_existia': len(chamadas) > 1,
+                'ficha': f'https://crm.example/ficha/{cid}', 'agenda': 'https://crm.example/agenda'}
+    monkeypatch.setattr(crm, 'agendar_medicao', fake_agendar)
+    corpo = {'cliente_id': RID, 'quando': '2026-11-20T14:00:00-03:00'}
+    membro(client, {'marquinhos': ['hoje']})
+    assert client.get('/crm/clientes?q=maria', headers=M).status_code == 403
+    assert client.post('/crm/medicao', headers=M, json=corpo).status_code == 403
+    membro(client, {'marquinhos': ['agenda']})
+    assert client.get('/crm/clientes?q=maria', headers=M).json()['clientes'][0]['nome'] == 'Maria'
+    r1 = client.post('/crm/medicao', headers=M, json=corpo)
+    assert r1.status_code == 201 and r1.json()['ficha'].endswith(RID)
+    r2 = client.post('/crm/medicao', headers=M, json=corpo)
+    assert r2.json()['ja_existia'] is True and chamadas[0] == chamadas[1]
+    assert client.post('/crm/medicao', headers=M, json={**corpo, 'quando': '2026-11-20T14:00:00'}).status_code == 422
+    ev = client.get('/auditoria?tipo=crm.medicao', headers=U).json()['eventos']
+    assert len(ev) == 2 and ev[0]['ator'] == MID
+
+
+def test_recusa_do_crm_vira_409(client, crm_on, monkeypatch):
+    def recusa(*_a):
+        raise crm.CrmRecusa('Data da medição inválida')
+    monkeypatch.setattr(crm, 'agendar_medicao', recusa)
+    r = client.post('/crm/medicao', headers=U, json={'cliente_id': RID, 'quando': '2020-01-01T10:00:00-03:00'})
+    assert r.status_code == 409 and r.json()['detail'] == 'Data da medição inválida'

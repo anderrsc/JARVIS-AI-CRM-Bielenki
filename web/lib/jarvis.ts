@@ -55,6 +55,12 @@ export type Equipe = { empresas: { chave: string; nome: string }[]; agentes?: { 
 export const getHoje = () => call<Briefing>("/hoje");
 export type LiaResumo = { ativa: boolean; modo: string; hoje: Record<string, number>; sugestoes: { contato: string; texto: string; link: string | null }[]; aguardando_equipe: number; falhas_24h: string[] };
 export const getLia = () => call<LiaResumo>("/crm/lia");
+export type ClienteCrm = { id: string; nome: string; telefone: string | null; endereco: string | null };
+export const buscarClientes = (q: string) =>
+  call<{ clientes: ClienteCrm[] }>(`/crm/clientes?q=${encodeURIComponent(q.slice(0, 120))}`).then((r) => r.clientes);
+export type MedicaoAgendada = { id: string; cliente_id: string; cliente: string; quando: string; ja_existia: boolean; ficha: string | null; agenda: string | null };
+export const agendarMedicao = (clienteId: string, quando: string) =>
+  call<MedicaoAgendada>("/crm/medicao", { method: "POST", body: JSON.stringify({ cliente_id: clienteId, quando }) });
 export const getEquipe = () => call<Equipe>("/equipe");
 export const createPendencia = (p: NovaPendencia) =>
   call<Pendencia>("/pendencias", { method: "POST", body: JSON.stringify(p) });

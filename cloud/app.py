@@ -1,7 +1,8 @@
-import os, sqlite3, secrets, time, uuid
+import os, sqlite3, secrets, time, uuid, hashlib
+from datetime import datetime
 from contextlib import contextmanager
 from datetime import date
-from fastapi import FastAPI, Header, HTTPException, Depends
+from fastapi import FastAPI, Header, HTTPException, Depends, Query
 from pydantic import BaseModel as _BaseModel, ConfigDict, Field, field_validator
 from typing import Literal
 import office, crm, knowledge, access
@@ -383,6 +384,40 @@ def lia_status(a: Ator = Depends(ator)):
         return crm.buscar_lia()
     except crm.CrmError as e:
         raise HTTPException(503, f'CRM indisponível: {e}') from None
+
+@app.get('/crm/clientes')
+def crm_clientes(q: str = Query(min_length=2, max_length=120), a: Ator = Depends(ator)):
+    """Busca de cliente no CRM para agendar. Só leitura, com as permissões do usuário JARVIS no CRM."""
+    exigir(a, crm.EMPRESA, 'agenda')
+    try:
+        return {'clientes': crm.buscar_clientes(q)}
+    except crm.CrmRecusa as e:
+        raise HTTPException(409, str(e)) from None
+    except crm.CrmError as e:
+        raise HTTPException(503, f'CRM indisponível: {e}') from None
+
+class Medicao(BaseModel):
+    cliente_id: str = Field(pattern=r'^[0-9a-fA-F-]{36}$')
+    quando: datetime
+    obs: str | None = Field(None, max_length=500)
+
+@app.post('/crm/medicao', status_code=201)
+def crm_medicao(m: Medicao, a: Ator = Depends(ator)):
+    """Agenda medição no CRM (ação confirmada pelo usuário). Mesmo pedido repetido não duplica."""
+    exigir(a, crm.EMPRESA, 'agenda')
+    if m.quando.tzinfo is None: raise HTTPException(422, 'Informe o fuso horário')
+    quando = m.quando.isoformat()
+    pedido = 'jv-' + hashlib.sha256(f'{a.id}|{m.cliente_id.lower()}|{quando}'.encode()).hexdigest()[:32]
+    try:
+        r = crm.agendar_medicao(pedido, m.cliente_id.lower(), quando, (m.obs or '').strip() or None)
+    except crm.CrmRecusa as e:
+        raise HTTPException(409, str(e)) from None
+    except crm.CrmError as e:
+        raise HTTPException(503, f'CRM indisponível: {e}') from None
+    with connection() as db:
+        log_event(db, 'crm.medicao_agendada', crm.EMPRESA, r['id'], f"{r['cliente']} {r['quando']}{' (já existia)' if r['ja_existia'] else ''}", ator=a.id)
+    crm.limpar_cache()
+    return r
 
 @app.get('/hoje')
 def hoje(a: Ator = Depends(ator)):

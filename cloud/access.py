@@ -12,6 +12,7 @@ MODULOS = {
     'pendencias': 'Registrar e concluir pendências',
     'delegar': 'Delegar a funcionários digitais e criar tarefas',
     'atendimento': 'Ver o atendimento do WhatsApp (Lia)',
+    'agenda': 'Buscar clientes e agendar medições no CRM',
     'conhecimento': 'Consultar regras da empresa',
     'conhecimento_editar': 'Propor e editar regras',
     'conhecimento_aprovar': 'Confirmar e arquivar regras',
