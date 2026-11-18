@@ -11,6 +11,7 @@ MODULOS = {
     'hoje': 'Ver pendências do dia',
     'pendencias': 'Registrar e concluir pendências',
     'delegar': 'Delegar a funcionários digitais e criar tarefas',
+    'atendimento': 'Ver o atendimento do WhatsApp (Lia)',
     'conhecimento': 'Consultar regras da empresa',
     'conhecimento_editar': 'Propor e editar regras',
     'conhecimento_aprovar': 'Confirmar e arquivar regras',

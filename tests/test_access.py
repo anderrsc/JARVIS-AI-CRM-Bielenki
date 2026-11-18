@@ -84,3 +84,29 @@ def test_admin_so_dono_e_auditoria(client):
     assert me['proprietario'] is False and me['acessos'] == {'marquinhos': ['hoje']}
     ev = client.get('/auditoria', headers=U).json()['eventos']
     assert any(e['tipo'] == 'usuario.acessos' for e in ev)
+
+
+def test_tentativas_negadas_ficam_na_auditoria(client):
+    membro(client, {'marquinhos': ['hoje']})
+    assert client.get('/pendencias?empresa=bielenki', headers=M).status_code == 403
+    assert client.get('/usuarios', headers=M).status_code == 403
+    assert client.get('/auditoria', headers=M).status_code == 403
+    outro = 'bbbbbbbb-bbbb-cccc-dddd-eeeeeeeeeeee'
+    assert client.get('/hoje', headers={**U, 'X-Jarvis-User': outro}).status_code == 403
+    ev = client.get('/auditoria?tipo=acesso.negado', headers=U).json()['eventos']
+    recursos = {(e['ator'], e['empresa'], e['recurso']) for e in ev}
+    assert (MID, 'bielenki', 'hoje') in recursos
+    assert (MID, None, 'usuarios') in recursos
+    assert (outro, None, 'login') in recursos
+    assert all(e['tipo'] == 'acesso.negado' for e in ev)
+    assert any(e['ator_nome'] == 'func@x.com' for e in ev)
+    # filtro por empresa
+    assert all(e['empresa'] == 'bielenki' for e in client.get('/auditoria?empresa=bielenki', headers=U).json()['eventos'])
+
+
+def test_lia_exige_modulo_atendimento(client, crm_on, monkeypatch):
+    monkeypatch.setattr(crm, 'buscar_lia', lambda: {'ativa': True})
+    membro(client, {'marquinhos': ['hoje']})
+    assert client.get('/crm/lia', headers=M).status_code == 403
+    membro(client, {'marquinhos': ['hoje', 'atendimento']})
+    assert client.get('/crm/lia', headers=M).status_code == 200
