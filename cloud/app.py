@@ -359,6 +359,15 @@ def delegar_crm(d: DelegarCrm, a: Ator = Depends(ator)):
         log_event(db, 'crm.delegada', crm.EMPRESA, d.id, f"{p['agente']}:{jid}", ator=a.id)
     return {'job_id': jid, 'agente': p['agente']}
 
+@app.get('/crm/lia')
+def lia_status(a: Ator = Depends(ator)):
+    """Como está a Lia no atendimento do WhatsApp (CRM). Só leitura; ação continua no CRM."""
+    exigir(a, crm.EMPRESA, 'hoje')
+    try:
+        return crm.buscar_lia()
+    except crm.CrmError as e:
+        raise HTTPException(503, f'CRM indisponível: {e}') from None
+
 @app.get('/hoje')
 def hoje(a: Ator = Depends(ator)):
     """Modo ASSISTENTE DE TRABALHO: pendências abertas por empresa, já priorizadas. Sem IA, sem dados inventados."""

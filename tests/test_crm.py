@@ -74,3 +74,25 @@ def test_crm_fora_do_ar(client, monkeypatch, crm_on):
     h = client.get('/hoje', headers=U).json()
     assert h['fontes'][0] == {'nome': 'CRM Bielenki', 'empresa': 'marquinhos', 'ok': False, 'erro': 'CRM indisponível'}
     assert client.post('/crm/delegar', headers=U, json={'id': f'crm:orcamento:{RID}'}).status_code == 409
+
+
+def test_lia_resumo(client, monkeypatch, crm_on):
+    resumo = {'ativa': True, 'modo': 'semiautomatica', 'hoje': {'respondeu': 7, 'sugeriu': 2},
+              'sugestoes': [{'conversa': RID, 'contato': 'João', 'texto': 'Pode mandar fotos?', 'desde': '2026-11-16T10:00:00Z'}],
+              'aguardando_equipe': 3, 'falhas_24h': [{'motivo': 'Groq 429', 'quando': '2026-11-16T09:00:00Z'}]}
+    def fake_post(path, body, token=None):
+        if path.startswith('/auth'):
+            return {'access_token': 'tok', 'expires_in': 3600}
+        assert path == '/rest/v1/rpc/lia_status_center' and token == 'tok'
+        return resumo
+    monkeypatch.setattr(crm, '_post', fake_post)
+    r = client.get('/crm/lia', headers=U).json()
+    assert r['modo'] == 'semiautomatica' and r['hoje'] == {'respondeu': 7, 'sugeriu': 2}
+    assert r['sugestoes'] == [{'contato': 'João', 'texto': 'Pode mandar fotos?', 'link': f'https://crm.example/atendimento?c={RID}'}]
+    assert r['aguardando_equipe'] == 3 and r['falhas_24h'] == ['Groq 429']
+
+
+def test_lia_crm_fora_do_ar(client, monkeypatch, crm_on):
+    def boom(*a, **k): raise crm.CrmError('CRM indisponível')
+    monkeypatch.setattr(crm, '_post', boom)
+    assert client.get('/crm/lia', headers=U).status_code == 503

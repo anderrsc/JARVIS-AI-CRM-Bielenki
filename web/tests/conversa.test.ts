@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { intencao, responderPendencias, montarPrompt, paraFala } from "../lib/conversa.ts";
+import { intencao, responderLia, responderPendencias, montarPrompt, paraFala } from "../lib/conversa.ts";
 
 const b = {
   fontes: [{ nome: "CRM Bielenki", ok: true }],
@@ -73,4 +73,20 @@ test("chamado simples responde na hora", () => {
   assert.equal(intencao("Jarvis").tipo, "saudacao");
   assert.equal(intencao("Oi Jarvis, tudo bem?").tipo, "saudacao");
   assert.equal(intencao("Jarvis, o que tenho hoje?").tipo, "pendencias");
+});
+
+test("Lia: entende perguntas sobre o atendimento", () => {
+  assert.equal(intencao("Como está a Lia hoje?").tipo, "lia");
+  assert.equal(intencao("como anda o atendimento do whatsapp").tipo, "lia");
+  assert.equal(intencao("quais as cobranças atrasadas").tipo, "pendencias");
+});
+
+test("Lia: resume com dados reais e sem inventar", () => {
+  const r = responderLia({ ativa: true, modo: "semiautomatica", hoje: { respondeu: 5, aprovada: 1, sugeriu: 2 },
+    sugestoes: [{ contato: "João", texto: "Pode mandar fotos?" }], aguardando_equipe: 2, falhas_24h: [] });
+  assert.match(r, /modo semiautomática/);
+  assert.match(r, /respondeu 6/);
+  assert.match(r, /João: "Pode mandar fotos\?"/);
+  assert.match(r, /2 conversa\(s\)/);
+  assert.match(responderLia({ ativa: false, modo: "automatica", hoje: {}, sugestoes: [], aguardando_equipe: 0, falhas_24h: [] }), /pausada/);
 });

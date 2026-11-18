@@ -53,6 +53,8 @@ export type Briefing = { data: string; empresas: BriefingEmpresa[]; fontes?: Fon
 export type Equipe = { empresas: { chave: string; nome: string }[]; agentes?: { chave: Agent; nome: string; departamento: string }[] };
 
 export const getHoje = () => call<Briefing>("/hoje");
+export type LiaResumo = { ativa: boolean; modo: string; hoje: Record<string, number>; sugestoes: { contato: string; texto: string; link: string | null }[]; aguardando_equipe: number; falhas_24h: string[] };
+export const getLia = () => call<LiaResumo>("/crm/lia");
 export const getEquipe = () => call<Equipe>("/equipe");
 export const createPendencia = (p: NovaPendencia) =>
   call<Pendencia>("/pendencias", { method: "POST", body: JSON.stringify(p) });
