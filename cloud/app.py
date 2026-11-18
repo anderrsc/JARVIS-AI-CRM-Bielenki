@@ -92,6 +92,8 @@ def ator(x_api_key: str | None = Header(None), x_jarvis_user: str | None = Heade
     with connection() as db:
         u = db.execute('SELECT ativo FROM usuarios WHERE id=?', (uid,)).fetchone()
         if not u or not u['ativo']:
+            log_event(db, 'acesso.negado', None, 'login', 'revogado' if u else 'nao_cadastrado', ator=uid)
+            db.commit()
             raise HTTPException(403, 'Usuário sem acesso ao JARVIS')
         perms: dict[str, set[str]] = {}
         for r in db.execute('SELECT empresa,modulo FROM acessos WHERE usuario_id=?', (uid,)):
@@ -99,8 +101,21 @@ def ator(x_api_key: str | None = Header(None), x_jarvis_user: str | None = Heade
         db.execute('UPDATE usuarios SET ultimo_acesso=? WHERE id=?', (int(time.time()), uid))
     return Ator(uid, False, perms)
 
+def registrar_negado(a: Ator, empresa: str | None, recurso: str):
+    """Auditoria de tentativa negada. Conexão própria e curta: nunca trava nem derruba a resposta 403."""
+    try:
+        conn = sqlite3.connect(DB, timeout=2)
+        try:
+            log_event(conn, 'acesso.negado', empresa, recurso, ator=a.id)
+            conn.commit()
+        finally:
+            conn.close()
+    except sqlite3.Error:
+        pass
+
 def exigir(a: Ator, empresa: str | None, modulo: str):
     if not a.pode(empresa, modulo):
+        registrar_negado(a, empresa, modulo)
         raise HTTPException(403, 'Sem permissão para esta empresa')
 
 def worker_auth(x_worker_key: str | None = Header(None)):
@@ -268,6 +283,7 @@ def criar_pendencia(p: NovaPendencia, a: Ator = Depends(ator)):
 def pendencia_visivel(db, pid: str, a: Ator, modulo: str) -> dict:
     p = get_pendencia(db, pid)
     if not a.pode(p['empresa'], modulo):
+        registrar_negado(a, p['empresa'], f"{modulo}:{p['id']}")
         if not a.pode(p['empresa'], 'hoje'): raise HTTPException(404, 'Não encontrado')  # não revela que existe
         raise HTTPException(403, 'Sem permissão para esta empresa')
     return p
@@ -362,7 +378,7 @@ def delegar_crm(d: DelegarCrm, a: Ator = Depends(ator)):
 @app.get('/crm/lia')
 def lia_status(a: Ator = Depends(ator)):
     """Como está a Lia no atendimento do WhatsApp (CRM). Só leitura; ação continua no CRM."""
-    exigir(a, crm.EMPRESA, 'hoje')
+    exigir(a, crm.EMPRESA, 'atendimento')
     try:
         return crm.buscar_lia()
     except crm.CrmError as e:
@@ -404,6 +420,7 @@ def get_regra(db, rid: str, a: Ator | None = None, modulo: str = 'conhecimento')
     r = db.execute('SELECT * FROM conhecimento WHERE id=?', (rid,)).fetchone()
     if not r: raise HTTPException(404, 'Não encontrado')
     if a is not None and not a.pode(r['empresa'], modulo):
+        registrar_negado(a, r['empresa'], f"{modulo}:{r['id']}")
         if not a.pode(r['empresa'], 'conhecimento'): raise HTTPException(404, 'Não encontrado')
         raise HTTPException(403, 'Sem permissão para esta empresa')
     return dict(r)
@@ -482,7 +499,9 @@ class Membro(BaseModel):
     acessos: dict[str, list[Literal[tuple(access.MODULOS)]]] = {}
 
 def so_dono(a: Ator):
-    if not a.dono: raise HTTPException(403, 'Só o proprietário gerencia usuários')
+    if not a.dono:
+        registrar_negado(a, None, 'usuarios')
+        raise HTTPException(403, 'Só o proprietário gerencia usuários')
 
 def membro_dict(db, uid: str) -> dict:
     u = db.execute('SELECT * FROM usuarios WHERE id=?', (uid,)).fetchone()
@@ -536,9 +555,15 @@ def ativar_usuario(uid: str, ativo: bool, a: Ator = Depends(ator)):
         return membro_dict(db, uid.lower())
 
 @app.get('/auditoria')
-def auditoria(empresa: str | None = None, a: Ator = Depends(ator)):
+def auditoria(empresa: str | None = None, tipo: str | None = None, limite: int = 200, a: Ator = Depends(ator)):
+    """Quem fez o quê, em qual empresa, e as tentativas negadas. Só o proprietário."""
     so_dono(a)
-    q, args = 'SELECT * FROM eventos', ()
-    if empresa: q += ' WHERE empresa=?'; args = (empresa,)
+    conds, args = [], []
+    if empresa: conds.append('empresa=?'); args.append(empresa)
+    if tipo: conds.append('tipo LIKE ?'); args.append(tipo.rstrip('*') + '%')
+    q = 'SELECT * FROM eventos' + (' WHERE ' + ' AND '.join(conds) if conds else '')
     with connection() as db:
-        return {'eventos': [dict(r) for r in db.execute(q + ' ORDER BY id DESC LIMIT 200', args)]}
+        nomes = {r['id']: r['nome'] or r['email'] for r in db.execute('SELECT id,nome,email FROM usuarios')}
+        evs = [dict(r) for r in db.execute(q + ' ORDER BY id DESC LIMIT ?', (*args, max(1, min(limite, 500))))]
+    for e in evs: e['ator_nome'] = 'Proprietário' if e['ator'] == 'proprietario' else nomes.get(e['ator'], e['ator'])
+    return {'eventos': evs}

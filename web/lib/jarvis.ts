@@ -86,5 +86,12 @@ export const listUsuarios = () =>
   call<{ usuarios: Membro[]; modulos: Record<string, string>; empresas: Record<string, string> }>("/usuarios");
 export const salvarUsuario = (m: { id: string; email: string; nome: string | null; cargo: string | null; acessos: Record<string, string[]> }) =>
   call<Membro>(`/usuarios/${encodeURIComponent(m.id)}`, { method: "PUT", body: JSON.stringify(m) });
+export type Evento = { id: number; ts: number; empresa: string | null; ator: string; ator_nome: string; tipo: string; recurso: string | null; detalhe: string | null };
+export const getAuditoria = (f: { empresa?: string; tipo?: string } = {}) => {
+  const q = new URLSearchParams({ limite: "100" });
+  if (f.empresa) q.set("empresa", f.empresa);
+  if (f.tipo) q.set("tipo", f.tipo);
+  return call<{ eventos: Evento[] }>(`/auditoria?${q}`).then((r) => r.eventos);
+};
 export const setUsuarioAtivo = (id: string, ativo: boolean) =>
   call<Membro>(`/usuarios/${encodeURIComponent(id)}/ativo?ativo=${ativo}`, { method: "POST" });
