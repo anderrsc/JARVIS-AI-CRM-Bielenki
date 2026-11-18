@@ -30,6 +30,10 @@ class CrmError(Exception):
     pass
 
 
+class CrmRecusa(CrmError):
+    """O CRM recusou por regra de negócio ou permissão. A mensagem é do próprio CRM e pode ser mostrada."""
+
+
 _token = {'value': '', 'exp': 0.0}
 _cache = {'items': None, 'ts': 0.0}
 
@@ -46,6 +50,12 @@ def _post(path: str, body: dict, token: str | None = None):
         with urllib.request.urlopen(req, timeout=10) as r:
             return json.loads(r.read() or b'null')
     except urllib.error.HTTPError as e:
+        try:
+            b = json.loads(e.read() or b'null')
+        except (ValueError, OSError):
+            b = None
+        if isinstance(b, dict) and b.get('code') in ('P0001', '42501') and isinstance(b.get('message'), str):
+            raise CrmRecusa(b['message'][:200]) from None
         raise CrmError(f'CRM respondeu {e.code}') from None
     except (urllib.error.URLError, TimeoutError, OSError):
         raise CrmError('CRM indisponível') from None
@@ -84,14 +94,40 @@ def buscar_pendencias(fetch=None) -> list[dict]:
     return items
 
 
-def _rpc(nome: str):
+def _rpc(nome: str, body: dict | None = None):
     try:
-        return _post(f'/rest/v1/rpc/{nome}', {}, _login())
+        return _post(f'/rest/v1/rpc/{nome}', body or {}, _login())
     except CrmError as e:
         if 'respondeu 401' not in str(e):
             raise
         _token['value'] = ''  # token expirado/revogado: tenta uma vez de novo
-        return _post(f'/rest/v1/rpc/{nome}', {}, _login())
+        return _post(f'/rest/v1/rpc/{nome}', body or {}, _login())
+
+
+def buscar_clientes(q: str) -> list[dict]:
+    """Até 5 clientes da Marquinhos por nome ou telefone (RPC `jarvis_find_clients`, permissões do usuário JARVIS)."""
+    if not configurado():
+        raise CrmError('Conector do CRM não configurado')
+    r = _rpc('jarvis_find_clients', {'p_query': q[:120]})
+    if not isinstance(r, list):
+        raise CrmError('Resposta inesperada do CRM')
+    return [{'id': str(c.get('id')), 'nome': str(c.get('name') or '')[:120], 'telefone': c.get('phone'),
+             'endereco': ', '.join(str(x) for x in (c.get('address'), c.get('neighborhood'), c.get('city')) if x) or None}
+            for c in r[:5] if isinstance(c, dict) and c.get('id')]
+
+
+def agendar_medicao(pedido: str, cliente_id: str, quando_iso: str, obs: str | None) -> dict:
+    """Cria a medição na agenda do CRM. Mesmo `pedido` = mesmo evento (não duplica)."""
+    if not configurado():
+        raise CrmError('Conector do CRM não configurado')
+    r = _rpc('jarvis_schedule_measurement', {'p_request_id': pedido, 'p_client_id': cliente_id,
+                                             'p_starts_at': quando_iso, 'p_notes': obs})
+    if not isinstance(r, dict) or not r.get('id'):
+        raise CrmError('Resposta inesperada do CRM')
+    cid = str(r.get('client_id') or cliente_id)
+    return {'id': str(r['id']), 'cliente_id': cid, 'cliente': str(r.get('client_name') or '')[:120],
+            'quando': str(r.get('starts_at') or quando_iso), 'ja_existia': bool(r.get('ja_existia')),
+            'ficha': f'{SITE}/ficha/{cid}' if SITE else None, 'agenda': f'{SITE}/agenda' if SITE else None}
 
 
 def buscar_lia() -> dict:

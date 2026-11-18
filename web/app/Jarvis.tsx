@@ -5,7 +5,7 @@ import { conversar, executarAcao, verResposta } from "./conversa-actions";
 import { NAO, paraFala, SIM, TEXTO_MAX, type Turno } from "@/lib/conversa";
 import { useJarvisVoice } from "./useJarvisVoice";
 
-type Msg = Turno & { id: string; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" | "acao"; agente?: string; pedido?: string };
+type Msg = Turno & { id: string; links?: { href: string; rotulo: string }[]; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" | "acao"; agente?: string; pedido?: string };
 type Estado = "pronto" | "ouvindo" | "pensando" | "falando";
 
 // Web Speech API (Chrome, Edge, Safari). Tipos mínimos para não depender de lib externa.
@@ -163,7 +163,7 @@ export default function Jarvis({ nome }: { nome: string }) {
     const r = await executarAcao(p.pedido).catch(() => ({ tipo: "erro", texto: "Sem conexão com o servidor. Nada foi confirmado." }) as const);
     executando.current = false;
     const texto = r.tipo === "texto" || r.tipo === "erro" ? r.texto : "Resposta inesperada. Confira em Hoje antes de repetir.";
-    atualizar(rid, { texto, status: r.tipo === "texto" ? "ok" : "erro", fonte: "acao" });
+    atualizar(rid, { texto, status: r.tipo === "texto" ? "ok" : "erro", fonte: "acao", links: r.tipo === "texto" ? r.links : undefined });
     falar(texto, continuar);
   }, [falar]);
 
@@ -194,7 +194,7 @@ export default function Jarvis({ nome }: { nome: string }) {
       return;
     }
     if (r.tipo === "texto") {
-      atualizar(rid, { texto: r.texto, status: "ok", fonte: "dados" });
+      atualizar(rid, { texto: r.texto, status: "ok", fonte: "dados", links: r.links });
       falar(r.texto, continuar);
       return;
     }
@@ -342,6 +342,11 @@ export default function Jarvis({ nome }: { nome: string }) {
           <div key={m.id} className={`jv-msg ${m.de} ${m.status ? "st-" + m.status : ""}`}>
             <span className="msg-author">{m.de === "eu" ? "Você" : "JARVIS"}</span>
             {m.status === "pensando" && !m.texto ? <span className="dots"><i /><i /><i /></span> : m.texto}
+            {m.links?.length ? (
+              <span className="jv-acao">
+                {m.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer">{l.rotulo} ↗</a>)}
+              </span>
+            ) : null}
             {m.pedido && pendente?.msg === m.id && (
               <span className="jv-acao">
                 <button type="button" onClick={() => resolverAcao(true)}>Confirmar</button>

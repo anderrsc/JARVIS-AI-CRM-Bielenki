@@ -1,12 +1,12 @@
 "use server";
 import { requireUser } from "@/lib/auth";
-import { createJob, createPendencia, delegarCrm, delegarPendencia, getHoje, getLia, getJob, pedirPlano, JarvisError } from "@/lib/jarvis";
-import { alvosDelegar, intencao, montarPrompt, prazoIso, responderLia, responderPendencias, TEXTO_MAX, type Turno } from "@/lib/conversa";
+import { agendarMedicao, buscarClientes, createJob, createPendencia, delegarCrm, delegarPendencia, getHoje, getLia, getJob, pedirPlano, JarvisError, type ClienteCrm } from "@/lib/jarvis";
+import { alvosDelegar, escolherCliente, FALTA_MEDICAO, intencao, montarPrompt, prazoIso, quandoMedicao, responderLia, responderPendencias, TEXTO_MAX, type Intencao, type Turno } from "@/lib/conversa";
 import { AGENT_LABEL, CATEGORIA_LABEL } from "@/lib/validate";
 import { isUuid } from "@/lib/validate";
 
 export type RespostaConversa =
-  | { tipo: "texto"; texto: string; fonte: "dados" }
+  | { tipo: "texto"; texto: string; fonte: "dados"; links?: { href: string; rotulo: string }[] }
   | { tipo: "tarefa"; id: string; agente?: string }
   | { tipo: "confirmar"; texto: string }
   | { tipo: "erro"; texto: string };
@@ -19,6 +19,20 @@ function limparHistorico(h: unknown): Turno[] {
     t && (t.de === "eu" || t.de === "jarvis") && typeof t.texto === "string" ? [{ de: t.de, texto: t.texto.slice(0, 600) }] : []);
 }
 
+type PlanoMedicao = { ok: true; cliente: ClienteCrm; iso: string; rotulo: string } | { ok: false; texto: string };
+
+/** Resolve cliente (no CRM) e data/hora do pedido. Mesmo texto = mesmo resultado, na pergunta e na confirmação. */
+async function planoMedicao(texto: string, it: Extract<Intencao, { tipo: "medicao" }>): Promise<PlanoMedicao> {
+  if (!it.cliente) return { ok: false, texto: FALTA_MEDICAO.cliente };
+  const q = quandoMedicao(texto);
+  if ("falta" in q) return { ok: false, texto: FALTA_MEDICAO[q.falta] };
+  const lista = await buscarClientes(it.cliente);
+  const e = escolherCliente(it.cliente, lista);
+  if ("cliente" in e) return { ok: true, cliente: e.cliente, iso: q.iso, rotulo: q.rotulo };
+  if (!e.opcoes.length) return { ok: false, texto: `Não encontrei "${it.cliente}" nos clientes da Marquinhos no CRM. Confira o nome ou cadastre o cliente primeiro.` };
+  return { ok: false, texto: `Encontrei mais de um cliente para "${it.cliente}":\n${e.opcoes.map((c) => `• ${c.nome}${c.endereco ? ` (${c.endereco})` : ""}`).join("\n")}\nRepita o pedido com o nome completo.` };
+}
+
 export async function conversar(texto: unknown, historico: unknown): Promise<RespostaConversa> {
   await requireUser();
   const t = typeof texto === "string" ? texto.trim() : "";
@@ -27,9 +41,14 @@ export async function conversar(texto: unknown, historico: unknown): Promise<Res
   const it = intencao(t);
   try {
     if (it.tipo === "pendencias") return { tipo: "texto", texto: responderPendencias(await getHoje(), it), fonte: "dados" };
-    if (it.tipo === "saudacao") return { tipo: "texto", fonte: "dados", texto: "Pois não, senhor. Posso dizer o que temos para hoje, as cobranças ou as instalações, anotar uma tarefa ou delegar pendências." };
+    if (it.tipo === "saudacao") return { tipo: "texto", fonte: "dados", texto: "Pois não, senhor. Posso dizer o que temos para hoje, as cobranças ou as instalações, anotar uma tarefa, agendar uma medição ou delegar pendências." };
     if (it.tipo === "lia") return { tipo: "texto", texto: responderLia(await getLia()), fonte: "dados" };
     if (it.tipo === "plano") return { tipo: "tarefa", id: (await pedirPlano()).id, agente: AGENT_LABEL.secretario };
+    if (it.tipo === "medicao") {
+      const p = await planoMedicao(t, it);
+      if (!p.ok) return { tipo: "texto", texto: p.texto, fonte: "dados" };
+      return { tipo: "confirmar", texto: `Vou agendar uma medição na agenda do CRM para ${p.cliente.nome}${p.cliente.endereco ? `, em ${p.cliente.endereco}` : ""}, ${p.rotulo}. Depois deixo a ficha A4 para imprimir. Nada é enviado ao cliente. Confirma?` };
+    }
     if (it.tipo === "anotar") {
       const quando = it.prazo ? ` com prazo ${it.prazo === "hoje" ? "hoje" : "amanhã"}` : "";
       return { tipo: "confirmar", texto: `Vou anotar na lista de Hoje da Marquinhos, como ${CATEGORIA_LABEL[it.categoria].toLowerCase()}${quando}: "${it.titulo}". Confirma?` };
@@ -68,6 +87,16 @@ export async function executarAcao(texto: unknown): Promise<RespostaConversa> {
   const t = typeof texto === "string" ? texto.trim().slice(0, TEXTO_MAX) : "";
   const it = intencao(t);
   try {
+    if (it.tipo === "medicao") {
+      const p = await planoMedicao(t, it);
+      if (!p.ok) return { tipo: "erro", texto: `${p.texto} Nada foi agendado.` };
+      const r = await agendarMedicao(p.cliente.id, p.iso);
+      const links = [r.ficha && { href: r.ficha, rotulo: "Imprimir ficha A4" }, r.agenda && { href: r.agenda, rotulo: "Abrir agenda" }]
+        .filter((l): l is { href: string; rotulo: string } => !!l);
+      return { tipo: "texto", fonte: "dados", links, texto: r.ja_existia
+        ? `Essa medição de ${r.cliente} ${p.rotulo} já estava agendada. Não criei outra.`
+        : `Agendado. Medição de ${r.cliente}, ${p.rotulo}, já está na agenda do CRM. A ficha A4 está no link abaixo.` };
+    }
     if (it.tipo === "anotar") {
       const p = await createPendencia({ empresa: "marquinhos", categoria: it.categoria, titulo: it.titulo, cliente: null, prazo: prazoIso(it.prazo), detalhe: "Criada por voz na conversa com o JARVIS." });
       return { tipo: "texto", fonte: "dados", texto: `Anotado. "${p.titulo}" está na lista de Hoje, com o ${AGENT_LABEL[p.agente] ?? p.agente}.` };
