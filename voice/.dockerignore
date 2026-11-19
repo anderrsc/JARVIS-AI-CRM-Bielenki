@@ -4,3 +4,4 @@ audio-cache
 *.log
 .env*
 __pycache__
+kokoro

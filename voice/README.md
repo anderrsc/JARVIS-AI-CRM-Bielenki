@@ -1,34 +1,26 @@
-# Voz própria do JARVIS
+# Voz do JARVIS
 
-Chatterbox Multilingual (MIT), com português e referência do MP3 fornecido. Não é uma cópia do modelo proprietário do Fish Audio. A semelhança precisa ser avaliada ouvindo a síntese; nenhum modelo promete timbre idêntico.
+Kokoro-82M (licença Apache 2.0) com a voz livre `pm_alex`, masculina, em português do Brasil. Por cima entra um efeito leve de "HUD" (filtro de banda, compressão e um eco curto) feito com FFmpeg. Nenhuma voz real é clonada: não há amostra de referência de ator, dublador ou outra pessoa.
 
-Os pesos são baixados uma vez. Depois, `server.py` carrega de `model/`, sem conta, assinatura ou API de terceiros. Guarde a pasta `model/`, `reference.wav` e o ambiente Python para manter a operação independente. Os WAV gerados ficam em `audio-cache/`; proteja e faça backup dessa pasta porque as respostas podem conter dados privados. O cache não é publicado no GitHub.
+Os pesos (~330 MB) são baixados no `docker build` por `prepare.py` e ficam dentro da imagem. Em execução o serviço funciona offline, sem conta nem API paga. Os WAV gerados ficam no volume `voice_audio`; o mesmo texto reaproveita o arquivo.
 
-## Preparar
+## Ajustes
 
-Python 3.12 e uma GPU NVIDIA são recomendados. A máquina de desenvolvimento tem RTX 3060 de 12 GB. A implantação CPU na VPS usa limites explícitos de 2800 MB de RAM, 4300 MB com swap e 3,5 CPUs, com quatro threads e decodificação em quatro passos. O modelo de linguagem é quantizado em INT8; as projeções de saída permanecem em ponto flutuante por compatibilidade. O serviço aquece e guarda uma saudação antes de aceitar tráfego. O painel prepara a próxima frase durante a reprodução, preservando números monetários. Uma CPU pequena ainda não oferece a mesma latência de uma GPU.
+Em `compose.voice.yaml`:
 
-```powershell
-python -m venv voice/.venv
-voice/.venv/Scripts/python.exe -m pip install torch==2.6.0 torchaudio==2.6.0 --index-url https://download.pytorch.org/whl/cu124
-voice/.venv/Scripts/python.exe -m pip install -r voice/requirements.txt
-voice/.venv/Scripts/python.exe voice/prepare.py
+- `JARVIS_VOICE_PRESET`: `pm_alex` (padrão, mais grave) ou `pm_santa`.
+- `JARVIS_VOICE_SPEED`: `0.92` deixa a fala calma; `1.0` é a velocidade normal.
+
+O filtro HUD está em `HUD_FILTER`, em `server.py`. Mudar voz, velocidade ou filtro gera áudio novo automaticamente.
+
+## API
+
+`POST /v1/tts` (`{"text": "..."}`) e `GET /health`, ambos com `Authorization: Bearer <JARVIS_VOICE_KEY ou JARVIS_USER_KEY>`. O Caddy encaminha `/voice` ao container pela rede interna; a porta não é pública. O painel chama `JARVIS_API_URL/voice` do lado do servidor.
+
+## Testar na VPS
+
+```bash
+./compose.sh exec voice python verify.py
 ```
 
-Converta de 6 a 10 segundos limpos da amostra para `voice/reference.wav`, mono a 24 kHz com FFmpeg. Escolha uma frase inteira, sem música. O arquivo é uma referência de timbre, não um conjunto de treinamento.
-
-## Executar
-
-Defina `JARVIS_VOICE_KEY` com pelo menos 24 caracteres e rode:
-
-```powershell
-$env:HF_HUB_OFFLINE='1'
-$env:TRANSFORMERS_OFFLINE='1'
-voice/.venv/Scripts/python.exe -m uvicorn voice.server:app --host 127.0.0.1 --port 8010
-```
-
-O painel usa `JARVIS_VOICE_URL` e `JARVIS_VOICE_KEY`, somente no servidor. Na VPS, usa automaticamente o caminho `/voice` de `JARVIS_API_URL` e a chave existente `JARVIS_USER_KEY`. O serviço expõe `POST /v1/tts` e `GET /health`, ambos com `Authorization: Bearer`. O Caddy recebe HTTPS e encaminha ao container pela rede interna; a porta de síntese não é exposta ao público. Sem VPS configurada, uma instalação local pode ser ligada por túnel privado e precisa permanecer ligada. CPU, GPU e energia são recursos próprios, sem cobrança por API.
-
-O Fish Audio é apenas uma ponte opcional se `FISH_AUDIO_API_KEY` estiver configurada. O código usa exclusivamente `s2.1-pro-free`, bloqueia após 30/11/2026 UTC e não tenta modelos pagos nem troca de voz silenciosamente.
-
-Fontes: https://github.com/resemble-ai/chatterbox e https://docs.fish.audio/api-reference/endpoint/openapi-v1/text-to-speech
+Fontes: https://huggingface.co/hexgrad/Kokoro-82M e https://github.com/hexgrad/kokoro

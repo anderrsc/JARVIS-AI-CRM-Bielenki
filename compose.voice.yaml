@@ -4,15 +4,13 @@ services:
     restart: unless-stopped
     env_file: .env.vps
     environment:
-      JARVIS_VOICE_DEVICE: cpu
       VOICE_THREADS: "4"
-      JARVIS_VOICE_STEPS: "4"
+      JARVIS_VOICE_PRESET: pm_alex
+      JARVIS_VOICE_SPEED: "0.92"
     volumes:
-      - ./voice/model:/app/model:ro
-      - ./voice/reference.wav:/app/reference.wav:ro
       - voice_audio:/app/audio-cache
-    mem_limit: 2800m
-    memswap_limit: 4300m
+    mem_limit: 1500m
+    memswap_limit: 2000m
     cpus: 3.5
     healthcheck:
       test:
@@ -23,7 +21,7 @@ services:
       interval: 60s
       timeout: 10s
       retries: 3
-      start_period: 180s
+      start_period: 90s
     security_opt:
       - no-new-privileges:true
     cap_drop: [ALL]

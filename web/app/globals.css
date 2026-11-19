@@ -248,3 +248,32 @@ main.jv-page .nav { font-size:12px; }
 }
 @media(max-height:650px) { .jv-core { width:min(15dvh,120px); } .jv-compact .jv-core { width:min(10dvh,80px); } .jv-welcome h1 { font-size:26px; } .jv-suggestions { margin-top:10px; } .jv-welcome p { display:none; } .jv-heading { display:none; } }
 @media(prefers-reduced-motion:reduce) { *,*:before,*:after { scroll-behavior:auto!important; animation:none!important; transition:none!important; } }
+
+/* Cartões HUD sincronizados com a fala ("fala e mostra"). */
+.hud-stage { position:relative; flex:none; width:100%; max-height:46dvh; overflow:hidden; perspective:900px; }
+.hud-stage-fechar { position:absolute; top:6px; right:8px; background:none; border:0; color:#86d6ff; font-size:20px; padding:4px 8px; cursor:pointer; }
+.hud-card { --c:#38d6ff; position:relative; display:grid; gap:4px; min-width:0; padding:12px 14px; border:1px solid color-mix(in srgb,var(--c) 45%,transparent); border-radius:4px 14px 4px 14px; background:linear-gradient(135deg,color-mix(in srgb,var(--c) 10%,#07111f),#07111fe6); box-shadow:0 0 18px color-mix(in srgb,var(--c) 14%,transparent), inset 0 0 24px color-mix(in srgb,var(--c) 6%,transparent); white-space:normal; }
+.hud-card[data-tom="alerta"] { --c:#ffb454; }
+.hud-card[data-tom="ok"] { --c:#5ef2a8; }
+.hud-card:before { content:""; position:absolute; top:-1px; left:10px; width:42px; height:2px; background:var(--c); box-shadow:0 0 10px var(--c); }
+.hud-card-titulo { text-transform:uppercase; letter-spacing:.16em; font-size:10px; color:color-mix(in srgb,var(--c) 75%,#cfe9ff); }
+.hud-card-destaque { font-size:24px; font-weight:600; line-height:1.1; color:#eaf8ff; text-shadow:0 0 14px color-mix(in srgb,var(--c) 55%,transparent); overflow-wrap:anywhere; }
+.hud-card-legenda { font-size:12px; color:#9cbbd4; }
+.hud-card ul { list-style:none; margin:6px 0 0; padding:0; display:grid; gap:4px; }
+.hud-card li { display:flex; justify-content:space-between; align-items:baseline; gap:10px; padding:5px 0; border-top:1px solid #38536e4d; font-size:12px; color:#c1d7ed; }
+.hud-card li[data-tom="alerta"] b { color:#ffcf8a; }
+.hud-card li span { display:grid; min-width:0; }
+.hud-card li b { font-weight:500; overflow-wrap:anywhere; }
+.hud-card li small { color:#849eb8; font-size:11px; overflow-wrap:anywhere; }
+.hud-card li em { font-style:normal; color:#eaf8ff; white-space:nowrap; font-variant-numeric:tabular-nums; }
+.hud-card.grande { padding:18px 22px; animation:hud-entra .45s cubic-bezier(.2,.8,.2,1); }
+.hud-card.grande .hud-card-destaque { font-size:clamp(30px,6vw,48px); }
+.hud-card.grande li { font-size:14px; }
+.hud-card.grande:after { content:""; position:absolute; inset:0; pointer-events:none; border-radius:inherit; background:linear-gradient(180deg,transparent 0,color-mix(in srgb,var(--c) 14%,transparent) 50%,transparent 100%); background-size:100% 200%; animation:hud-varre 1.6s linear infinite; opacity:.5; }
+.hud-cards { display:grid; grid-template-columns:repeat(auto-fill,minmax(170px,1fr)); gap:8px; margin-top:6px; }
+.hud-cards .hud-card { padding:9px 11px; opacity:.8; transition:opacity .2s, transform .2s; }
+.hud-cards .hud-card.ativo { opacity:1; transform:translateY(-2px); }
+.hud-cards .hud-card-destaque { font-size:18px; }
+@keyframes hud-entra { from { opacity:0; transform:rotateX(14deg) translateY(16px) scale(.97); filter:blur(3px); } to { opacity:1; transform:none; filter:none; } }
+@keyframes hud-varre { from { background-position:0 100%; } to { background-position:0 -100%; } }
+@media (max-width:480px) { .hud-cards { grid-template-columns:minmax(0,1fr); } .hud-stage { max-height:40dvh; } }
