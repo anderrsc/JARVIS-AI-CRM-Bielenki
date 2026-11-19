@@ -4,8 +4,9 @@ import Link from "next/link";
 import { conversar, executarAcao, verResposta } from "./conversa-actions";
 import { NAO, paraFala, SIM, TEXTO_MAX, type Turno } from "@/lib/conversa";
 import { useJarvisVoice } from "./useJarvisVoice";
+import type { Cena } from "@/lib/cenas";
 
-type Msg = Turno & { id: string; links?: { href: string; rotulo: string }[]; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" | "acao"; agente?: string; pedido?: string };
+type Msg = Turno & { id: string; links?: { href: string; rotulo: string }[]; tarefa?: string; status?: "pensando" | "ok" | "erro"; fonte?: "dados" | "ia" | "acao"; agente?: string; pedido?: string; cenas?: Cena[] };
 type Estado = "pronto" | "ouvindo" | "pensando" | "falando";
 
 // Web Speech API (Chrome, Edge, Safari). Tipos mínimos para não depender de lib externa.
@@ -25,6 +26,22 @@ const CHAVE = "jarvis.conversa.v1";
 const POLL_MS = 2000;
 const POLL_MAX = 120; // ~4 min
 const nid = () => Math.random().toString(36).slice(2, 10);
+
+/** Cartão HUD de uma cena: aparece grande enquanto a frase é falada e pequeno no histórico. */
+function CartaoHud({ c, grande, ativo }: { c: Cena; grande?: boolean; ativo?: boolean }) {
+  return (
+    <div className={`hud-card${grande ? " grande" : ""}${ativo ? " ativo" : ""}`} data-tom={c.tom ?? "info"}>
+      <span className="hud-card-titulo">{c.titulo}</span>
+      {c.destaque && <strong className="hud-card-destaque">{c.destaque}</strong>}
+      {c.legenda && <span className="hud-card-legenda">{c.legenda}</span>}
+      {c.linhas?.length ? (
+        <ul>{c.linhas.map((l, i) => (
+          <li key={i} data-tom={l.tom}><span><b>{l.texto}</b>{l.detalhe && <small>{l.detalhe}</small>}</span>{l.valor && <em>{l.valor}</em>}</li>
+        ))}</ul>
+      ) : null}
+    </div>
+  );
+}
 
 function carregar(): Msg[] {
   try {
@@ -51,6 +68,7 @@ export default function Jarvis({ nome }: { nome: string }) {
   const [semMic, setSemMic] = useState(false);
   const [saud, setSaud] = useState("Olá");
   const [aviso, setAviso] = useState("");
+  const [palco, setPalco] = useState<{ msg: string; i: number } | null>(null);
   const nucleo = useRef<HTMLButtonElement>(null);
   const fim = useRef<HTMLDivElement>(null);
   const rec = useRef<Rec | null>(null);
@@ -119,10 +137,13 @@ export default function Jarvis({ nome }: { nome: string }) {
 
   const atualizar = (id: string, p: Partial<Msg>) => setMsgs((m) => m.map((x) => (x.id === id ? { ...x, ...p } : x)));
 
-  const falar = useCallback((t: string, depois?: () => void) => {
+  // Com cenas, cada frase falada mostra seu cartão no palco HUD.
+  const falar = useCallback((t: string, depois?: () => void, cenas?: Cena[], msg?: string) => {
     setEstado("pronto");
+    setPalco(null);
     if (!refs.current.voz) { depois?.(); return; }
-    void speak(paraFala(t), depois);
+    const onCena = cenas?.length && msg ? (i: number) => setPalco({ msg, i }) : undefined;
+    void speak(paraFala(t), () => { setPalco(null); depois?.(); }, onCena && cenas, onCena);
   }, [speak]);
 
   const ouvirRef = useRef<() => void>(() => {});
@@ -194,14 +215,14 @@ export default function Jarvis({ nome }: { nome: string }) {
       return;
     }
     if (r.tipo === "texto") {
-      atualizar(rid, { texto: r.texto, status: "ok", fonte: "dados", links: r.links });
-      falar(r.texto, continuar);
+      atualizar(rid, { texto: r.texto, status: "ok", fonte: "dados", links: r.links, cenas: r.cenas });
+      falar(r.texto, continuar, r.cenas, rid);
       return;
     }
     if (r.tipo === "confirmar") {
-      atualizar(rid, { texto: r.texto, status: "ok", fonte: "acao", pedido: q });
+      atualizar(rid, { texto: r.texto, status: "ok", fonte: "acao", pedido: q, cenas: r.cenas });
       setPendente({ pedido: q, msg: rid });
-      falar(r.texto, continuar);
+      falar(r.texto, continuar, r.cenas, rid);
       return;
     }
     atualizar(rid, { tarefa: r.id, fonte: "ia", agente: r.agente });
@@ -327,13 +348,22 @@ export default function Jarvis({ nome }: { nome: string }) {
       <p className="jv-status" aria-live="polite"><span className="status-dot" />{parcial || label}</p>
       {aviso && estado === "pronto" && <p className="jv-aviso small" role="alert">{aviso}</p>}
       <div id="voice-settings" className="voice-panel" hidden={!voiceOpen}>
-        <div><strong>A voz do seu JARVIS</strong><p className="muted small">Português brasileiro · Referência original</p></div>
+        <div><strong>A voz do seu JARVIS</strong><p className="muted small">Português brasileiro · voz livre com efeito HUD</p></div>
         <button type="button" className="secondary" onClick={() => { rec.current?.abort(); voice.preview(); }}>Ouvir amostra</button>
-        <p className="muted small">A síntese própria usa sua amostra para aproximar o timbre. As respostas são faladas quando o serviço de voz está conectado.</p>
+        <p className="muted small">Voz masculina livre (Kokoro, licença Apache 2.0), gerada no seu servidor, sem API paga. Nenhuma voz real é copiada.</p>
       </div>
       {voice.error && <p className="jv-aviso small" role="alert">{voice.error}</p>}
       <audio ref={voice.player} controls hidden={!voice.source} className="voice-player" preload="none" onPlay={() => voice.setPlaying(true)} onPause={() => voice.setPlaying(false)} />
 
+      {(() => {
+        const cena = palco ? msgs.find((m) => m.id === palco.msg)?.cenas?.[palco.i] : undefined;
+        return cena ? (
+          <div className="hud-stage" aria-hidden="true">
+            <CartaoHud key={`${palco!.msg}-${palco!.i}`} c={cena} grande />
+            <button type="button" className="hud-stage-fechar" onClick={() => setPalco(null)} aria-label="Fechar cartão">×</button>
+          </div>
+        ) : null;
+      })()}
       <div className="jv-log" role="log" aria-live="polite">
         {msgs.length === 0 && (
           <div className="jv-welcome"><span className="eyebrow">{saud}, {nome}.</span><h1>O que vamos<br /><em>resolver hoje?</em></h1><p className="muted">Fale naturalmente. Eu cuido de conectar os pontos.</p><div className="jv-suggestions">{[["◷", "Meu dia", "O que tenho hoje?"], ["↗", "Financeiro", "Quais cobranças estão atrasadas?"], ["▦", "Instalações", "Quais instalações estão pendentes?"]].map(([icon, title, question]) => <button type="button" key={title} onClick={() => { stopVoice(); void responder(question); }}><span aria-hidden="true">{icon}</span><strong>{title}</strong><span aria-hidden="true">↗</span></button>)}</div></div>
@@ -342,6 +372,9 @@ export default function Jarvis({ nome }: { nome: string }) {
           <div key={m.id} className={`jv-msg ${m.de} ${m.status ? "st-" + m.status : ""}`}>
             <span className="msg-author">{m.de === "eu" ? "Você" : "JARVIS"}</span>
             {m.status === "pensando" && !m.texto ? <span className="dots"><i /><i /><i /></span> : m.texto}
+            {m.cenas?.length ? (
+              <span className="hud-cards">{m.cenas.map((c, i) => <CartaoHud key={i} c={c} ativo={palco?.msg === m.id && palco.i === i} />)}</span>
+            ) : null}
             {m.links?.length ? (
               <span className="jv-acao">
                 {m.links.map((l) => <a key={l.href} href={l.href} target="_blank" rel="noopener noreferrer">{l.rotulo} ↗</a>)}
@@ -359,7 +392,7 @@ export default function Jarvis({ nome }: { nome: string }) {
                 {m.tarefa && <> · <Link href={`/jobs/${m.tarefa}`}>tarefa</Link></>}
               </small>
             )}
-            {m.de === "jarvis" && m.texto && m.status !== "pensando" && <button type="button" className="replay-voice" onClick={() => { rec.current?.abort(); void speak(m.texto); }}>♫ Ouvir resposta</button>}
+            {m.de === "jarvis" && m.texto && m.status !== "pensando" && <button type="button" className="replay-voice" onClick={() => { rec.current?.abort(); setPalco(null); void speak(m.texto, () => setPalco(null), m.cenas, m.cenas?.length ? (i) => setPalco({ msg: m.id, i }) : undefined); }}>♫ Ouvir resposta</button>}
           </div>
         ))}
         <div ref={fim} />

@@ -3,12 +3,13 @@ import { requireUser } from "@/lib/auth";
 import { agendarMedicao, buscarClientes, createJob, createPendencia, delegarCrm, delegarPendencia, getHoje, getLia, getJob, pedirPlano, JarvisError, type ClienteCrm } from "@/lib/jarvis";
 import { alvosDelegar, escolherCliente, FALTA_MEDICAO, intencao, montarPrompt, prazoIso, quandoMedicao, responderLia, responderPendencias, TEXTO_MAX, type Intencao, type Turno } from "@/lib/conversa";
 import { AGENT_LABEL, CATEGORIA_LABEL } from "@/lib/validate";
+import { cenaMedicao, cenasLia, cenasPendencias, type Cena } from "@/lib/cenas";
 import { isUuid } from "@/lib/validate";
 
 export type RespostaConversa =
-  | { tipo: "texto"; texto: string; fonte: "dados"; links?: { href: string; rotulo: string }[] }
+  | { tipo: "texto"; texto: string; fonte: "dados"; links?: { href: string; rotulo: string }[]; cenas?: Cena[] }
   | { tipo: "tarefa"; id: string; agente?: string }
-  | { tipo: "confirmar"; texto: string }
+  | { tipo: "confirmar"; texto: string; cenas?: Cena[] }
   | { tipo: "erro"; texto: string };
 
 const erro = (e: unknown): RespostaConversa => ({ tipo: "erro", texto: e instanceof JarvisError ? e.message : "Erro inesperado." });
@@ -40,14 +41,22 @@ export async function conversar(texto: unknown, historico: unknown): Promise<Res
   if (t.length > TEXTO_MAX) return { tipo: "erro", texto: "Mensagem longa demais." };
   const it = intencao(t);
   try {
-    if (it.tipo === "pendencias") return { tipo: "texto", texto: responderPendencias(await getHoje(), it), fonte: "dados" };
+    if (it.tipo === "pendencias") {
+      const hoje = await getHoje();
+      const cenas = cenasPendencias(hoje, it.categorias);
+      return { tipo: "texto", texto: responderPendencias(hoje, it), fonte: "dados", ...(cenas.length ? { cenas } : {}) };
+    }
     if (it.tipo === "saudacao") return { tipo: "texto", fonte: "dados", texto: "Pois não, senhor. Posso dizer o que temos para hoje, as cobranças ou as instalações, anotar uma tarefa, agendar uma medição ou delegar pendências." };
-    if (it.tipo === "lia") return { tipo: "texto", texto: responderLia(await getLia()), fonte: "dados" };
+    if (it.tipo === "lia") {
+      const lia = await getLia();
+      return { tipo: "texto", texto: responderLia(lia), fonte: "dados", cenas: cenasLia(lia) };
+    }
     if (it.tipo === "plano") return { tipo: "tarefa", id: (await pedirPlano()).id, agente: AGENT_LABEL.secretario };
     if (it.tipo === "medicao") {
       const p = await planoMedicao(t, it);
       if (!p.ok) return { tipo: "texto", texto: p.texto, fonte: "dados" };
-      return { tipo: "confirmar", texto: `Vou agendar uma medição na agenda do CRM para ${p.cliente.nome}${p.cliente.endereco ? `, em ${p.cliente.endereco}` : ""}, ${p.rotulo}. Depois deixo a ficha A4 para imprimir. Nada é enviado ao cliente. Confirma?` };
+      const texto = `Vou agendar uma medição na agenda do CRM para ${p.cliente.nome}${p.cliente.endereco ? `, em ${p.cliente.endereco}` : ""}, ${p.rotulo}. Depois deixo a ficha A4 para imprimir. Nada é enviado ao cliente. Confirma?`;
+      return { tipo: "confirmar", texto, cenas: [cenaMedicao(p.cliente, p.rotulo, texto)] };
     }
     if (it.tipo === "anotar") {
       const quando = it.prazo ? ` com prazo ${it.prazo === "hoje" ? "hoje" : "amanhã"}` : "";

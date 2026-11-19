@@ -35,11 +35,15 @@ export function useJarvisVoice() {
     catch { setPlaying(false); setError("Seu navegador pediu um toque: use o player abaixo para ouvir."); }
   }, []);
 
-  const speak = useCallback(async (text: string, after?: () => void) => {
+  /** Fala o texto; com cenas, fala frase a frase e avisa qual cartão mostrar (onCena). */
+  const speak = useCallback(async (text: string, after?: () => void, cenas?: { fala: string }[], onCena?: (i: number) => void) => {
     stop();
     setError("");
     const id = version.current;
-    const parts = speechParts(paraFala(text));
+    const falas = cenas?.length
+      ? cenas.flatMap((c, i) => speechParts(paraFala(c.fala)).map((t) => ({ t, i })))
+      : speechParts(paraFala(text)).map((t) => ({ t, i: -1 }));
+    const parts = falas.map((f) => f.t);
     const controller = new AbortController();
     request.current = controller;
     const prepare = async (part: string): Promise<{ url: string } | { error: unknown }> => {
@@ -72,6 +76,7 @@ export function useJarvisVoice() {
       if ("error" in result) { setError(result.error instanceof Error ? result.error.message : "Não foi possível gerar a voz."); return; }
       // Only one synthesis request at a time; prepare the next phrase during playback.
       const next = index + 1 < parts.length ? prepare(parts[index + 1]) : undefined;
+      if (falas[index].i >= 0) onCena?.(falas[index].i);
       await play(result.url, () => {
         if (id !== version.current) return;
         if (next) void run(index + 1, next); else after?.();
